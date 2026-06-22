@@ -5,7 +5,7 @@ from sigstore_collector import parse_sigstore_bundle
 def fetch_and_test():
     # 1. 테스트용 패키지 설정 (sigstore의 최신 버전 중 하나)
     package_name = "sigstore"
-    package_version = "3.0.0"
+    package_version = "5.0.0"  # <-- 이 부분을 5.0.0으로 변경!
     url = f"https://registry.npmjs.org/-/npm/v1/attestations/{package_name}@{package_version}"
 
     print(f"[*] npm 레지스트리에서 {package_name}@{package_version}의 증명서를 가져옵니다...")
