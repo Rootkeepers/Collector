@@ -21,6 +21,9 @@ def collect_rate_limit():
     elif rate.remaining <= 10:
         print(f"\n[경고] 남은 API 요청 횟수가 {rate.remaining}회입니다.")
 
+#======================================================
+# commit 정보 바탕으로 PR 정보 가져오기
+#======================================================
 def collect_PR(commit):
     PR_info = []
     pulls = commit.get_pulls()
@@ -41,13 +44,11 @@ def collect_PR(commit):
 # commit 관련 정보 받아오기
 #==========================
 def collect_commit():
-    tags = repo.get_tags() # 리포 태그 받아오기
     commit_info = []
 
     for i, tag in enumerate(repo.get_tags()): # 최근 10개의 커밋 목록 받아오기
         if i >= 10:
             break
-
         commit = repo.get_commit(tag.commit.sha)
         commit_info.append({ # 태그, 커밋 sha, 작성자, 커밋 생성 날짜 저장
             "tag": tag.name,
