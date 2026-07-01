@@ -89,17 +89,23 @@ def collect_commit():
 #============================
 def collect_workflow():
     workflow_info = []
-    runs = repo.get_workflow_runs()
 
-    for i, run in enumerate(runs):
-        if i >= 10:
-            break
+    try:
+        runs = repo.get_workflow_runs()
 
-        workflow_info.append({
-            "id": run.raw_data["workflow_id"],
-            "name": run.name,
-            "repository": repo.full_name,
-            "run_id": run.id,
-            "builder": run.actor.login if run.actor else None
-        })
+        for i, run in enumerate(runs):
+            if i >= 10:
+                break
+
+            workflow_info.append({
+                "id": run.raw_data.get("workflow_id"),
+                "name": run.name,
+                "repository": repo.full_name,
+                "run_id": run.id,
+                "builder": run.actor.login if run.actor else None
+            })
+
+    except Exception as e:
+        print("workflow 실패:", e)
+
     return workflow_info
