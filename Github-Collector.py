@@ -21,9 +21,9 @@ def collect_rate_limit():
     elif rate.remaining <= 10:
         print(f"\n[경고] 남은 API 요청 횟수가 {rate.remaining}회입니다.")
 
-#======================================================
+#======================================
 # commit 정보 바탕으로 PR 정보 가져오기
-#======================================================
+#======================================
 def collect_PR(commit):
     PR_info = []
     pulls = commit.get_pulls()
@@ -46,18 +46,37 @@ def collect_PR(commit):
 def collect_commit():
     commit_info = []
 
-    for i, tag in enumerate(repo.get_tags()): # 최근 10개의 커밋 목록 받아오기
+    for i, tag in enumerate(repo.get_tags()):
         if i >= 10:
             break
+
         commit = repo.get_commit(tag.commit.sha)
-        commit_info.append({ # 태그, 커밋 sha, 작성자, 커밋 생성 날짜 저장
+
+        commit_info.append({
             "tag": tag.name,
             "sha": commit.sha,
             "author": commit.commit.author.name,
-            "timestamp": commit.commit.author.date.strftime("%Y-%m-%d %H:%M:%S")
+            "timestamp": commit.commit.author.date.strftime("%Y-%m-%d %H:%M:%S"),
+            "pull_requests": collect_PR(commit)
         })
-    collect_PR(commit)
     return commit_info
 
+#============================
+# workflow 관련 정보 받아오기
+#============================
+def collect_workflow():
+    workflow_info = []
+    runs = repo.get_workflow_runs()
 
-collect_commit()
+    for i, run in enumerate(runs):
+        if i >= 10:
+            break
+
+        workflow_info.append({
+            "id": run.raw_data["workflow_id"],
+            "name": run.name,
+            "repository": repo.full_name,
+            "run_id": run.id,
+            "builder": run.actor.login if run.actor else None
+        })
+    return workflow_info
