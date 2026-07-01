@@ -1,40 +1,76 @@
 import os
 from github import Github
 
-g = None
-repo = None
+class GithubRateLimitError(Exception):
+    pass
 
-#===============================
-# Github 토큰 및 패키지 가져오기
-#===============================
-def get_package():
-    global g, repo
+# ===============================
+# GitHub repo 가져오기
+# ===============================
+def get_repo(owner_repo):
+    token = os.getenv("GITHUB_TOKEN")
 
-    TOKEN = os.getenv("GITHUB_TOKEN")
-    g = Github(TOKEN)
-    repo = g.get_repo("expressjs/express")
+    if not token:
+        raise RuntimeError("GITHUB_TOKEN 환경변수가 없습니다.")
 
-#======================================================
-# GitHub API의 Rate Limit 상태를 확인 및 경고 메시지 출력
-#======================================================
+    g = Github(token)
+    repo = g.get_repo(owner_repo)
+
+    return g, repo
+
+
+# ===========================
+# GitHub API Rate Limit 확인
+# ===========================
 def collect_rate_limit(g):
-    overview = g.get_rate_limit() # rate_limit 받아오기
+    overview = g.get_rate_limit()
     rate = overview.rate
-    reset_time = rate.reset.strftime("%Y-%m-%d %H:%M:%S") # 토큰 초기화 시간
+    reset_time = rate.reset.strftime("%Y-%m-%d %H:%M:%S")
 
     if rate.remaining == 0:
-        print("\n[오류] GitHub API Rate Limit을 초과했습니다.")
-        print(f"{reset_time} 시간 이후 다시 시도해주세요.")
-        class GithubRateLimitError(Exception):
-            pass
-    elif rate.remaining <= 10:
-        print(f"\n[경고] 남은 API 요청 횟수가 {rate.remaining}회입니다.")
+        raise GithubRateLimitError(
+            f"GitHub API Rate Limit 초과. reset={reset_time}"
+        )
 
-#======================================
+    if rate.remaining <= 10:
+        print(f"[경고] 남은 API 요청 횟수가 {rate.remaining}회입니다.")
+
+    return {
+        "limit": rate.limit,
+        "remaining": rate.remaining,
+        "reset": reset_time
+    }
+
+
+# ==========================
+# PR reviewer 정보 수집
+# ==========================
+def collect_reviewers(pr):
+    reviewers = []
+
+    try:
+        reviews = pr.get_reviews()
+
+        for review in reviews:
+            reviewers.append({
+                "login": review.user.login if review.user else None,
+                "state": review.state,
+                "approved": review.state == "APPROVED",
+                "submitted_at": review.submitted_at.isoformat()
+                if review.submitted_at else None
+            })
+
+    except Exception as e:
+        print("reviewer 실패:", e)
+
+    return reviewers
+
+
+# ======================================
 # commit 정보 바탕으로 PR 정보 가져오기
-#======================================
+# ======================================
 def collect_PR(commit):
-    PR_info = []
+    pr_info = []
 
     try:
         pulls = commit.get_pulls()
@@ -43,47 +79,70 @@ def collect_PR(commit):
             if i >= 10:
                 break
 
-            PR_info.append({
+            pr_info.append({
                 "number": pr.number,
                 "title": pr.title,
                 "merged": pr.merged,
-                "merged_at": pr.merged_at
+                "merged_at": pr.merged_at.isoformat()
+                if pr.merged_at else None,
+                "reviewers": collect_reviewers(pr)
             })
 
     except Exception as e:
         print("PR 실패:", e)
 
-    return PR_info
+    return pr_info
 
-#==========================
-# commit 관련 정보 받아오기
-#==========================
+
+# ==========================
+# git_head 기준 commit 수집
+# ==========================
 def collect_commit(repo, git_head):
-    commit_info = []
+    try:
+        commit = repo.get_commit(git_head)
 
-    tags = repo.get_tags()
+        return {
+            "sha": commit.sha,
+            "author": commit.commit.author.name
+            if commit.commit.author else None,
+            "timestamp": commit.commit.author.date.isoformat()
+            if commit.commit.author else None,
+            "pull_requests": collect_PR(commit)
+        }
 
-    for i, tag in enumerate(tags):
-        if i >= 10:
-            break
-        try:
-            commit = repo.get_commit(git_head)
-            commit_info.append({
-                "tag": tag.name,
-                "sha": commit.sha,
-                "author": commit.commit.author.name if commit.commit.author else None,
-                "timestamp": commit.commit.author.date.strftime("%Y-%m-%d %H:%M:%S") if commit.commit.author else None,
-                "pull_requests": collect_PR(commit)
-            })
+    except Exception as e:
+        print("commit 실패:", e)
+        return None
 
-        except Exception as e:
-            print("commit 실패:", e)
-            continue
-    return commit_info
 
-#============================
-# workflow 관련 정보 받아오기
-#============================
+# ==========================================
+# git_head를 가리키는 tag가 있는지 확인
+# ==========================================
+def collect_matching_tags(repo, git_head, limit=50):
+    matched_tags = []
+
+    try:
+        tags = repo.get_tags()
+
+        for i, tag in enumerate(tags):
+            if i >= limit:
+                break
+
+            if tag.commit.sha == git_head:
+                matched_tags.append({
+                    "name": tag.name,
+                    "sha": tag.commit.sha
+                })
+
+    except Exception as e:
+        print("tag 조회 실패:", e)
+
+    return matched_tags
+
+
+# ============================
+# workflow 관련 정보 수집
+# ============================
 def collect_workflow(repo, git_head):
     workflow_info = []
 
@@ -104,11 +163,33 @@ def collect_workflow(repo, git_head):
                 "event": run.event,
                 "status": run.status,
                 "conclusion": run.conclusion,
-                "created_at": run.created_at.isoformat() if run.created_at else None,
-                "updated_at": run.updated_at.isoformat() if run.updated_at else None
+                "created_at": run.created_at.isoformat()
+                if run.created_at else None,
+                "updated_at": run.updated_at.isoformat()
+                if run.updated_at else None
             })
 
     except Exception as e:
         print("workflow 실패:", e)
 
     return workflow_info
+
+
+# ============================
+# GitHub evidence 통합 수집
+# ============================
+def collect_github_evidence(owner_repo, git_head):
+    g, repo = get_repo(owner_repo)
+
+    rate_limit = collect_rate_limit(g)
+    commit_info = collect_commit(repo, git_head)
+    tag_info = collect_matching_tags(repo, git_head)
+    workflow_info = collect_workflow(repo, git_head)
+
+    return {
+        "repository": repo.full_name,
+        "rate_limit": rate_limit,
+        "commit": commit_info,
+        "tags": tag_info,
+        "workflows": workflow_info
+    }
