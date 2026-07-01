@@ -1,13 +1,18 @@
 import os
 from github import Github
 
-repo, g = ''
+g = None
+repo = None
 
+#===============================
+# Github 토큰 및 패키지 가져오기
+#===============================
 def get_package():
+    global g, repo
+
     TOKEN = os.getenv("GITHUB_TOKEN")
     g = Github(TOKEN)
-    repo = g.get_repo("expressjs/express") # 패키지 리포 받아와야함
-    # 테스트용 패키지
+    repo = g.get_repo("expressjs/express")
 
 #======================================================
 # GitHub API의 Rate Limit 상태를 확인 및 경고 메시지 출력
