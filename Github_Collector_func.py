@@ -25,7 +25,8 @@ def collect_rate_limit():
     if rate.remaining == 0:
         print("\n[오류] GitHub API Rate Limit을 초과했습니다.")
         print(f"{reset_time} 시간 이후 다시 시도해주세요.")
-        exit()
+        class GithubRateLimitError(Exception):
+            pass
     elif rate.remaining <= 10:
         print(f"\n[경고] 남은 API 요청 횟수가 {rate.remaining}회입니다.")
 
@@ -57,34 +58,27 @@ def collect_PR(commit):
 #==========================
 # commit 관련 정보 받아오기
 #==========================
-def collect_commit():
+def collect_commit(repo, git_head):
     commit_info = []
 
-    try:
-        tags = repo.get_tags()
+    tags = repo.get_tags()
 
-        for i, tag in enumerate(tags):
-            if i >= 10:
-                break
+    for i, tag in enumerate(tags):
+        if i >= 10:
+            break
+        try:
+            commit = repo.get_commit(git_head)
+            commit_info.append({
+                "tag": tag.name,
+                "sha": commit.sha,
+                "author": commit.commit.author.name if commit.commit.author else None,
+                "timestamp": commit.commit.author.date.strftime("%Y-%m-%d %H:%M:%S") if commit.commit.author else None,
+                "pull_requests": collect_PR(commit)
+            })
 
-            try:
-                commit = repo.get_commit(tag.commit.sha)
-
-                commit_info.append({
-                    "tag": tag.name,
-                    "sha": commit.sha,
-                    "author": commit.commit.author.name if commit.commit.author else None,
-                    "timestamp": commit.commit.author.date.strftime("%Y-%m-%d %H:%M:%S") if commit.commit.author else None,
-                    "pull_requests": collect_PR(commit)
-                })
-
-            except Exception as e:
-                print("commit 실패:", e)
-                continue
-
-    except Exception as e:
-        print("tag 조회 실패:", e)
-
+        except Exception as e:
+            print("commit 실패:", e)
+            continue
     return commit_info
 
 #============================
