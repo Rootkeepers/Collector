@@ -17,7 +17,7 @@ def get_package():
 #======================================================
 # GitHub API의 Rate Limit 상태를 확인 및 경고 메시지 출력
 #======================================================
-def collect_rate_limit():
+def collect_rate_limit(g):
     overview = g.get_rate_limit() # rate_limit 받아오기
     rate = overview.rate
     reset_time = rate.reset.strftime("%Y-%m-%d %H:%M:%S") # 토큰 초기화 시간
@@ -84,11 +84,11 @@ def collect_commit(repo, git_head):
 #============================
 # workflow 관련 정보 받아오기
 #============================
-def collect_workflow():
+def collect_workflow(repo, git_head):
     workflow_info = []
 
     try:
-        runs = repo.get_workflow_runs()
+        runs = repo.get_workflow_runs(head_sha=git_head)
 
         for i, run in enumerate(runs):
             if i >= 10:
@@ -99,7 +99,13 @@ def collect_workflow():
                 "name": run.name,
                 "repository": repo.full_name,
                 "run_id": run.id,
-                "builder": run.actor.login if run.actor else None
+                "builder": run.actor.login if run.actor else None,
+                "head_sha": run.head_sha,
+                "event": run.event,
+                "status": run.status,
+                "conclusion": run.conclusion,
+                "created_at": run.created_at.isoformat() if run.created_at else None,
+                "updated_at": run.updated_at.isoformat() if run.updated_at else None
             })
 
     except Exception as e:
