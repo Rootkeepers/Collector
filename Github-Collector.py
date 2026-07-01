@@ -1,9 +1,12 @@
 import os
 from github import Github
 
-TOKEN = os.getenv("GITHUB_TOKEN")
-g = Github(TOKEN)
-repo = g.get_repo("expressjs/express") # 패키지 리포 받아와야함
+repo, g = ''
+
+def get_package():
+    TOKEN = os.getenv("GITHUB_TOKEN")
+    g = Github(TOKEN)
+    repo = g.get_repo("expressjs/express") # 패키지 리포 받아와야함
     # 테스트용 패키지
 
 #======================================================
@@ -20,24 +23,32 @@ def collect_rate_limit():
         exit()
     elif rate.remaining <= 10:
         print(f"\n[경고] 남은 API 요청 횟수가 {rate.remaining}회입니다.")
+    get_package()
+
 
 #======================================
 # commit 정보 바탕으로 PR 정보 가져오기
 #======================================
 def collect_PR(commit):
     PR_info = []
-    pulls = commit.get_pulls()
 
-    for i, pr in enumerate(pulls):
-        if i >= 10:
-            break
+    try:
+        pulls = commit.get_pulls()
 
-        PR_info.append({ # PR 숫자, 제목, merged 여부, merged 시간 저장
-            "number": pr.number,
-            "title": pr.title,
-            "merged": pr.merged,
-            "merged_at": pr.merged_at
-        })
+        for i, pr in enumerate(pulls):
+            if i >= 10:
+                break
+
+            PR_info.append({
+                "number": pr.number,
+                "title": pr.title,
+                "merged": pr.merged,
+                "merged_at": pr.merged_at
+            })
+
+    except Exception as e:
+        print("PR 실패:", e)
+
     return PR_info
 
 #==========================
@@ -46,19 +57,31 @@ def collect_PR(commit):
 def collect_commit():
     commit_info = []
 
-    for i, tag in enumerate(repo.get_tags()):
-        if i >= 10:
-            break
+    try:
+        tags = repo.get_tags()
 
-        commit = repo.get_commit(tag.commit.sha)
+        for i, tag in enumerate(tags):
+            if i >= 10:
+                break
 
-        commit_info.append({
-            "tag": tag.name,
-            "sha": commit.sha,
-            "author": commit.commit.author.name,
-            "timestamp": commit.commit.author.date.strftime("%Y-%m-%d %H:%M:%S"),
-            "pull_requests": collect_PR(commit)
-        })
+            try:
+                commit = repo.get_commit(tag.commit.sha)
+
+                commit_info.append({
+                    "tag": tag.name,
+                    "sha": commit.sha,
+                    "author": commit.commit.author.name if commit.commit.author else None,
+                    "timestamp": commit.commit.author.date.strftime("%Y-%m-%d %H:%M:%S") if commit.commit.author else None,
+                    "pull_requests": collect_PR(commit)
+                })
+
+            except Exception as e:
+                print("commit 실패:", e)
+                continue
+
+    except Exception as e:
+        print("tag 조회 실패:", e)
+
     return commit_info
 
 #============================
