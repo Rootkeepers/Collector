@@ -28,8 +28,6 @@ def collect_rate_limit():
         exit()
     elif rate.remaining <= 10:
         print(f"\n[경고] 남은 API 요청 횟수가 {rate.remaining}회입니다.")
-    get_package()
-
 
 #======================================
 # commit 정보 바탕으로 PR 정보 가져오기
