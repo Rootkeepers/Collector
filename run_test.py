@@ -1,9 +1,11 @@
 import json
 import requests
 
-# 우리가 만든 두 개의 파서를 모두 불러옵니다!
 from bundle_parser import BundleParseError, extract_predicate_from_dsse
 from predicate_parser import parse_slsa_predicate
+from oidc_parser import parse_fulcio_oidc_info, OIDCParseError
+from rekor_parser import parse_rekor_log_info, RekorParseError
+from cross_validator import validate_oidc_matches_predicate
 
 ATTESTATIONS_URL = "https://registry.npmjs.org/-/npm/v1/attestations/vite@5.2.0"
 
@@ -19,31 +21,44 @@ def fetch_and_test() -> None:
 
     attestations = data.get("attestations", [])
     if not attestations:
-        print("[-] 증명서(attestations) 배열을 찾을 수 없습니다.")
+        print("[-] 증명서 배열을 찾을 수 없습니다.")
         return
-
-    print(f"[*] 총 {len(attestations)}개의 증명서 봉투를 발견했습니다.\n")
 
     for index, attestation in enumerate(attestations, start=1):
         bundle = attestation.get("bundle", {})
         try:
-            # [1단계] 번들 파서: DSSE 봉투를 해체하고 Predicate(알맹이) 추출
             predicate = extract_predicate_from_dsse(bundle)
         except BundleParseError:
-            # 파싱할 수 없는 단순 영수증 등은 조용히 넘어갑니다.
             continue 
 
-        # 진짜 SLSA 출처 증명서(빌드 족보)인지 확인
         if "buildDefinition" in predicate:
-            print(f"=== [ 📦 봉투 {index}번: 진짜 SLSA 출처 증명서 해체 성공! ] ===")
+            print(f"\n=== [ 📦 봉투 {index}번: SLSA 출처 증명서 발견! ] ===")
             
-            # [2단계] Predicate 파서: 거대한 족보에서 핵심 정보 3가지만 정규화하여 추출
-            print("[*] Predicate 파서로 핵심 정보(저장소, 커밋, 워크플로)를 필터링합니다...\n")
+            # 1. 내용물(Predicate) 파싱
             core_info = parse_slsa_predicate(predicate)
             
-            print("✨ [ 최종 추출 결과 ] ✨")
-            print(json.dumps(core_info, indent=2, ensure_ascii=False))
-            print("\n🎉 축하합니다! 두 파서가 완벽하게 연결되어 동작합니다!")
+            # 2. 도장(OIDC & Rekor) 파싱
+            verification_material = bundle.get("verificationMaterial", {})
+            try:
+                oidc_info = parse_fulcio_oidc_info(verification_material)
+                rekor_info = parse_rekor_log_info(verification_material)
+            except (OIDCParseError, RekorParseError) as e:
+                print(f"[-] 인증서/로그 파싱 실패: {e}")
+                continue
+
+            print("[+] OIDC 정보 및 Rekor 로그 추출 성공!")
+            
+            # 3. 대망의 교차 검증 (Rule 5.4: OIDC Mismatch)
+            print("[*] 교차 검증을 시작합니다...")
+            validation_result = validate_oidc_matches_predicate(core_info, oidc_info)
+            
+            print("\n✨ [ 최종 교차 검증 결과 ] ✨")
+            print(json.dumps(validation_result, indent=2, ensure_ascii=False))
+            
+            if validation_result["passed"]:
+                print("\n🎉 [PASS] 서명된 OIDC 신원과 빌드 족보가 완벽하게 일치합니다!")
+            else:
+                print("\n🚨 [FAIL] OIDC Mismatch 감지! 위조된 서명일 가능성이 있습니다.")
             return
 
     print("[-] 진짜 SLSA 출처 증명서를 찾지 못했습니다.")
