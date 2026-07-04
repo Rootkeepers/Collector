@@ -50,7 +50,9 @@ def collect_reviewers(pr):
     try:
         reviews = pr.get_reviews()
 
-        for review in reviews:
+        for i, review in enumerate(reviews):
+            if i >= 10:
+                break
             reviewers.append({
                 "login": review.user.login if review.user else None,
                 "state": review.state,
@@ -117,14 +119,14 @@ def collect_commit(repo, git_head):
 # ==========================================
 # git_head를 가리키는 tag가 있는지 확인
 # ==========================================
-def collect_matching_tags(repo, git_head, limit=50):
+def collect_matching_tags(repo, git_head):
     matched_tags = []
 
     try:
         tags = repo.get_tags()
 
         for i, tag in enumerate(tags):
-            if i >= limit:
+            if i >= 10:
                 break
 
             if tag.commit.sha == git_head:
