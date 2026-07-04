@@ -11,24 +11,24 @@ class GithubRateLimitError(Exception):
 def get_repo(owner_repo):
     token = os.getenv("GITHUB_TOKEN")
 
-    if not token:
+    if not token:  # GitHub token validation
         raise RuntimeError("GITHUB_TOKEN 환경변수가 없습니다.")
 
-    try:
+    try:  # GitHub repository access
         g = Github(token)
         repo = g.get_repo(owner_repo)
         return g, repo
 
-    except BadCredentialsException:
+    except BadCredentialsException:  # Invalid GitHub credentials
         raise RuntimeError("GitHub 토큰이 잘못되었습니다.")
 
-    except UnknownObjectException:
+    except UnknownObjectException:  # Repository not found
         raise RuntimeError(f"Repository를 찾을 수 없습니다: {owner_repo}")
 
-    except RateLimitExceededException:
+    except RateLimitExceededException:  # API rate limit exceeded
         raise GithubRateLimitError("GitHub API Rate Limit 초과")
 
-    except GithubException as e:
+    except GithubException as e:  # Other GitHub API errors
         raise RuntimeError(f"GitHub API 오류: {e}")
 
 # ===========================
@@ -37,20 +37,23 @@ def get_repo(owner_repo):
 def collect_rate_limit(g):
     overview = g.get_rate_limit()
     rate = overview.rate
+
+    # Collect rate limit information
     reset_time = rate.reset.strftime("%Y-%m-%d %H:%M:%S")
 
-    if rate.remaining == 0:
+    if rate.remaining == 0:  # Rate limit exceeded
         raise GithubRateLimitError(
             f"GitHub API Rate Limit 초과. reset={reset_time}"
         )
 
-    if rate.remaining <= 10:
+    if rate.remaining <= 10:  # Low remaining requests warning
         print(f"[경고] 남은 API 요청 횟수가 {rate.remaining}회입니다.")
 
+    # Return collected rate limit data
     return {
-        "limit": rate.limit,
-        "remaining": rate.remaining,
-        "reset": reset_time
+        "limit": rate.limit,          # Maximum API requests
+        "remaining": rate.remaining,  # Remaining API requests
+        "reset": reset_time           # Rate limit reset time
     }
 
 
@@ -60,21 +63,22 @@ def collect_rate_limit(g):
 def collect_reviewers(pr):
     reviewers = []
 
-    try:
+    try:  # Collect reviewer information
         reviews = pr.get_reviews()
 
         for i, review in enumerate(reviews):
             if i >= 10:
                 break
+
             reviewers.append({
-                "login": review.user.login if review.user else None,
-                "state": review.state,
-                "approved": review.state == "APPROVED",
-                "submitted_at": review.submitted_at.isoformat()
+                "login": review.user.login if review.user else None,        # Reviewer username
+                "state": review.state,                                      # Review status
+                "approved": review.state == "APPROVED",                     # Approval result
+                "submitted_at": review.submitted_at.isoformat()             # Review submission time
                 if review.submitted_at else None
             })
 
-    except Exception as e:
+    except Exception as e:  # Exception handling
         print("reviewer 실패:", e)
 
     return reviewers
