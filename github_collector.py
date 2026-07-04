@@ -199,15 +199,17 @@ def collect_workflow(repo, git_head):
 def collect_github_evidence(owner_repo, git_head):
     g, repo = get_repo(owner_repo)
 
+    # Collect GitHub evidence
     rate_limit = collect_rate_limit(g)
     commit_info = collect_commit(repo, git_head)
     tag_info = collect_matching_tags(repo, git_head)
     workflow_info = collect_workflow(repo, git_head)
 
+    # Return collected evidence
     return {
-        "repository": repo.full_name,
-        "rate_limit": rate_limit,
-        "commit": commit_info,
-        "tags": tag_info,
-        "workflows": workflow_info
+        "repository": repo.full_name,      # Repository name
+        "rate_limit": rate_limit,          # Rate limit information
+        "commit": commit_info,             # Commit information
+        "tags": tag_info,                  # Matching tag information
+        "workflows": workflow_info         # Workflow run information
     }
