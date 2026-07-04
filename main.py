@@ -1,4 +1,4 @@
-from Github_Collector_func import (get_package, collect_rate_limit, collect_commit,collect_workflow)
+from github_collector import (get_package, collect_rate_limit, collect_commit,collect_workflow)
 
 get_package()
 collect_rate_limit()

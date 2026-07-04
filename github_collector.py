@@ -10,14 +10,13 @@ class GithubRateLimitError(Exception):
 def get_repo(owner_repo):
     token = os.getenv("GITHUB_TOKEN")
 
-    if not token:
+    if not token: # 토큰 없을 때 예외처리
         raise RuntimeError("GITHUB_TOKEN 환경변수가 없습니다.")
 
     g = Github(token)
     repo = g.get_repo(owner_repo)
 
     return g, repo
-
 
 # ===========================
 # GitHub API Rate Limit 확인
