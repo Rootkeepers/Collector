@@ -63,21 +63,22 @@ def collect_rate_limit(g):
 def collect_reviewers(pr):
     reviewers = []
 
-    try:
+    try:  # Collect reviewer information
         reviews = pr.get_reviews()
 
         for i, review in enumerate(reviews):
             if i >= 10:
                 break
+
             reviewers.append({
-                "login": review.user.login if review.user else None,
-                "state": review.state,
-                "approved": review.state == "APPROVED",
-                "submitted_at": review.submitted_at.isoformat()
+                "login": review.user.login if review.user else None,        # Reviewer username
+                "state": review.state,                                      # Review status
+                "approved": review.state == "APPROVED",                     # Approval result
+                "submitted_at": review.submitted_at.isoformat()             # Review submission time
                 if review.submitted_at else None
             })
 
-    except Exception as e:
+    except Exception as e:  # Exception handling
         print("reviewer 실패:", e)
 
     return reviewers
