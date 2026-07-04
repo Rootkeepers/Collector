@@ -1,0 +1,77 @@
+{
+  "schema_version": "srp.track-c.v1",
+  "generated_at": "2026-07-04T03:39:52.614038+00:00",
+  "package": {
+    "ecosystem": "npm",
+    "name": "vite",
+    "version": "5.2.0",
+    "purl": "pkg:npm/vite@5.2.0"
+  },
+  "attestation": {
+    "source": "npm-registry",
+    "url": "https://registry.npmjs.org/-/npm/v1/attestations/vite@5.2.0",
+    "selected_index": 2,
+    "type": "slsa-provenance"
+  },
+  "slsa_predicate": {
+    "repository": "https://github.com/vitejs/vite",
+    "commit": "e4572b8eae561fffdd720686e3ccd001cc5beaf0",
+    "workflow_path": ".github/workflows/publish.yml"
+  },
+  "fulcio_oidc": {
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "https://github.com/vitejs/vite/.github/workflows/publish.yml@refs/tags/v5.2.0",
+    "subject_repo": "vitejs/vite",
+    "subject_workflow": ".github/workflows/publish.yml",
+    "san_uris": [
+      "https://github.com/vitejs/vite/.github/workflows/publish.yml@refs/tags/v5.2.0"
+    ],
+    "san_emails": [],
+    "github_extensions": {
+      "github_workflow_trigger": "push",
+      "github_workflow_sha": "e4572b8eae561fffdd720686e3ccd001cc5beaf0",
+      "github_workflow_name": "Publish Package",
+      "github_workflow_repository": "vitejs/vite",
+      "github_workflow_ref": "refs/tags/v5.2.0",
+      "build_signer_uri": "https://github.com/vitejs/vite/.github/workflows/publish.yml@refs/tags/v5.2.0",
+      "build_signer_digest": "e4572b8eae561fffdd720686e3ccd001cc5beaf0",
+      "runner_environment": "github-hosted",
+      "source_repository_uri": "https://github.com/vitejs/vite",
+      "source_repository_digest": "e4572b8eae561fffdd720686e3ccd001cc5beaf0",
+      "source_repository_ref": "refs/tags/v5.2.0"
+    }
+  },
+  "rekor": {
+    "present": true,
+    "logIndex": 79706244,
+    "integratedTime": 1710926457
+  },
+  "validation": {
+    "status": "PASS",
+    "passed": true,
+    "rules": [
+      {
+        "id": "5.4",
+        "name": "OIDC_MISMATCH",
+        "status": "PASS",
+        "mismatches": []
+      }
+    ],
+    "raw": {
+      "status": "PASS",
+      "passed": true,
+      "rule": "OIDC_MISMATCH",
+      "predicate": {
+        "repository": "vitejs/vite",
+        "workflow_path": ".github/workflows/publish.yml"
+      },
+      "oidc": {
+        "subject_repo": "vitejs/vite",
+        "subject_workflow": ".github/workflows/publish.yml",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "subject": "https://github.com/vitejs/vite/.github/workflows/publish.yml@refs/tags/v5.2.0"
+      },
+      "mismatches": []
+    }
+  }
+}
