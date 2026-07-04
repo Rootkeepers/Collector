@@ -90,7 +90,7 @@ def collect_reviewers(pr):
 def collect_PR(commit):
     pr_info = []
 
-    try:
+    try:  # Collect pull request information
         pulls = commit.get_pulls()
 
         for i, pr in enumerate(pulls):
@@ -98,15 +98,15 @@ def collect_PR(commit):
                 break
 
             pr_info.append({
-                "number": pr.number,
-                "title": pr.title,
-                "merged": pr.merged,
-                "merged_at": pr.merged_at.isoformat()
+                "number": pr.number,                    # Pull request number
+                "title": pr.title,                      # Pull request title
+                "merged": pr.merged,                    # Merge status
+                "merged_at": pr.merged_at.isoformat()   # Merge time
                 if pr.merged_at else None,
-                "reviewers": collect_reviewers(pr)
+                "reviewers": collect_reviewers(pr)  # Reviewer information
             })
 
-    except Exception as e:
+    except Exception as e:  # Exception handling
         print("PR 실패:", e)
 
     return pr_info
