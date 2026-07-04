@@ -1,22 +1,35 @@
 import os
 from github import Github
+from github import GithubException, BadCredentialsException, UnknownObjectException, RateLimitExceededException
 
 class GithubRateLimitError(Exception):
     pass
 
 # ===============================
-# GitHub repo 가져오기
+# GitHub repo 수집
 # ===============================
 def get_repo(owner_repo):
     token = os.getenv("GITHUB_TOKEN")
 
-    if not token: # 토큰 없을 때 예외처리
+    if not token:
         raise RuntimeError("GITHUB_TOKEN 환경변수가 없습니다.")
 
-    g = Github(token)
-    repo = g.get_repo(owner_repo)
+    try:
+        g = Github(token)
+        repo = g.get_repo(owner_repo)
+        return g, repo
 
-    return g, repo
+    except BadCredentialsException:
+        raise RuntimeError("GitHub 토큰이 잘못되었습니다.")
+
+    except UnknownObjectException:
+        raise RuntimeError(f"Repository를 찾을 수 없습니다: {owner_repo}")
+
+    except RateLimitExceededException:
+        raise GithubRateLimitError("GitHub API Rate Limit 초과")
+
+    except GithubException as e:
+        raise RuntimeError(f"GitHub API 오류: {e}")
 
 # ===========================
 # GitHub API Rate Limit 확인
