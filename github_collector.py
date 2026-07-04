@@ -139,7 +139,7 @@ def collect_commit(repo, git_head):
 def collect_matching_tags(repo, git_head):
     matched_tags = []
 
-    try:
+    try:  # Collect matching tag information
         tags = repo.get_tags()
 
         for i, tag in enumerate(tags):
@@ -148,11 +148,11 @@ def collect_matching_tags(repo, git_head):
 
             if tag.commit.sha == git_head:
                 matched_tags.append({
-                    "name": tag.name,
-                    "sha": tag.commit.sha
+                    "name": tag.name,          # Tag name
+                    "sha": tag.commit.sha      # Associated commit SHA
                 })
 
-    except Exception as e:
+    except Exception as e:  # Exception handling
         print("tag 조회 실패:", e)
 
     return matched_tags
