@@ -116,19 +116,19 @@ def collect_PR(commit):
 # git_head 기준 commit 수집
 # ==========================
 def collect_commit(repo, git_head):
-    try:
+    try:  # Collect commit information
         commit = repo.get_commit(git_head)
 
         return {
-            "sha": commit.sha,
-            "author": commit.commit.author.name
+            "sha": commit.sha,                  # Commit SHA
+            "author": commit.commit.author.name # Commit author
             if commit.commit.author else None,
-            "timestamp": commit.commit.author.date.isoformat()
+            "timestamp": commit.commit.author.date.isoformat()  # Commit timestamp
             if commit.commit.author else None,
-            "pull_requests": collect_PR(commit)
+            "pull_requests": collect_PR(commit) # Associated pull requests
         }
 
-    except Exception as e:
+    except Exception as e:  # Exception handling
         print("commit 실패:", e)
         return None
 
