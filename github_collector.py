@@ -164,7 +164,7 @@ def collect_matching_tags(repo, git_head):
 def collect_workflow(repo, git_head):
     workflow_info = []
 
-    try:
+    try:  # Collect workflow run information
         runs = repo.get_workflow_runs(head_sha=git_head)
 
         for i, run in enumerate(runs):
@@ -172,22 +172,22 @@ def collect_workflow(repo, git_head):
                 break
 
             workflow_info.append({
-                "id": run.raw_data.get("workflow_id"),
-                "name": run.name,
-                "repository": repo.full_name,
-                "run_id": run.id,
-                "builder": run.actor.login if run.actor else None,
-                "head_sha": run.head_sha,
-                "event": run.event,
-                "status": run.status,
-                "conclusion": run.conclusion,
-                "created_at": run.created_at.isoformat()
+                "id": run.raw_data.get("workflow_id"),  # Workflow ID
+                "name": run.name,                       # Workflow name
+                "repository": repo.full_name,           # Repository name
+                "run_id": run.id,                       # Workflow run ID
+                "builder": run.actor.login if run.actor else None,  # Workflow trigger user
+                "head_sha": run.head_sha,               # Commit SHA
+                "event": run.event,                     # Trigger event
+                "status": run.status,                   # Workflow status
+                "conclusion": run.conclusion,           # Workflow result
+                "created_at": run.created_at.isoformat()# Creation time
                 if run.created_at else None,
-                "updated_at": run.updated_at.isoformat()
+                "updated_at": run.updated_at.isoformat()    # Last update time
                 if run.updated_at else None
             })
 
-    except Exception as e:
+    except Exception as e:  # Exception handling
         print("workflow 실패:", e)
 
     return workflow_info
