@@ -89,6 +89,12 @@ def _load_leaf_certificate(verification_material: dict[str, Any]) -> x509.Certif
 
 def _extract_leaf_certificate_bytes(verification_material: dict[str, Any]) -> bytes:
     chain = verification_material.get("x509CertificateChain")
+    if isinstance(chain, list) and chain:
+        return _certificate_entry_to_bytes(chain[0])
+
+    if isinstance(chain, str):
+        return _certificate_entry_to_bytes(chain)
+
     if isinstance(chain, dict):
         certificates = chain.get("certificates")
         if isinstance(certificates, list) and certificates:
