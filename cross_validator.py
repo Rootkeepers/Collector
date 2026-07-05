@@ -51,7 +51,17 @@ def validate_oidc_matches_predicate(
         "SLSA predicate repository does not match Fulcio OIDC subject repository",
     )
 
-    if predicate_workflow and oidc_workflow and predicate_workflow != oidc_workflow:
+    if not predicate_workflow or not oidc_workflow:
+        mismatches.append(
+            {
+                "rule": "OIDC_MISMATCH",
+                "field": "workflow_path",
+                "predicate": predicate_workflow,
+                "oidc": oidc_workflow,
+                "message": "Workflow identity is missing from SLSA predicate or Fulcio OIDC claims",
+            }
+        )
+    elif predicate_workflow != oidc_workflow:
         mismatches.append(
             {
                 "rule": "OIDC_MISMATCH",
