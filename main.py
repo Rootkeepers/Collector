@@ -127,7 +127,14 @@ def write_json(document: dict[str, Any], output_path: Path | None) -> None:
         print(rendered)
         return
 
-    output_path.write_text(rendered + "\n", encoding="utf-8")
+    try:
+        output_path.write_text(rendered + "\n", encoding="utf-8")
+    except OSError as error:
+        print(
+            f"warning: failed to write JSON to {output_path}: {error}; falling back to stdout",
+            file=sys.stderr,
+        )
+        print(rendered)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
