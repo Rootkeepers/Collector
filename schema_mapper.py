@@ -120,6 +120,25 @@ def build_error_schema(
             "selected_index": None,
             "type": None,
         },
+        "slsa_predicate": {
+            "repository": "",
+            "commit": "",
+            "workflow_path": "",
+        },
+        "fulcio_oidc": {
+            "issuer": "",
+            "subject": "",
+            "subject_repo": "",
+            "subject_workflow": "",
+            "san_uris": [],
+            "san_emails": [],
+            "github_extensions": {},
+        },
+        "rekor": {
+            "present": False,
+            "logIndex": None,
+            "integratedTime": None,
+        },
         "validation": {
             "status": "ERROR",
             "passed": False,
