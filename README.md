@@ -240,6 +240,82 @@ python main.py @scope/package 1.0.0 --timeout 30
 
 ---
 
+## Step 8: 보안 강화 및 안정성 패치 (Security & Stability Hardening)
+
+production-ready Consumer Gate로 사용하기 위해, 최근 코드 리뷰에서 발견된 보안 및 안정성 이슈를 수정했다. 이번 패치의 목표는 단순히 예외를 줄이는 것이 아니라, 공격자가 의도적으로 핵심 claim을 누락하거나 malformed input을 제공했을 때도 TrustGate가 보수적으로 판단하도록 만드는 것이다.
+
+### OIDC Mismatch 무음 통과 방지
+
+`cross_validator.py`의 Rule 5.4 검증 로직을 강화했다.
+
+기존 로직은 SLSA predicate의 `workflow_path` 또는 Fulcio OIDC의 `subject_workflow`가 비어 있는 경우, 양쪽 workflow 값이 모두 존재할 때만 비교를 수행했다. 이 경우 repository만 일치하면 workflow identity가 누락되어도 `PASS`로 처리될 수 있었다.
+
+수정 후에는 다음 조건 중 하나라도 발생하면 즉시 `OIDC_MISMATCH` mismatch를 추가하고 `FAIL`을 반환한다.
+
+- SLSA predicate의 `workflow_path`가 비어 있음
+- Fulcio OIDC claim의 `subject_workflow`가 비어 있음
+- 양쪽 workflow path가 서로 다름
+
+이를 통해 공격자가 workflow claim을 의도적으로 생략해 검증을 우회하는 silent-pass 취약점을 차단했다.
+
+### PASS/ERROR Schema Shape 일관성 보장
+
+`schema_mapper.py`의 `build_error_schema()`를 보강했다.
+
+기존 ERROR schema는 `slsa_predicate`, `fulcio_oidc`, `rekor` top-level key를 포함하지 않았기 때문에, Track A 또는 Track B가 Track C 결과를 병합하는 과정에서 `KeyError`가 발생할 수 있었다.
+
+수정 후 ERROR schema도 PASS schema와 동일한 top-level 구조를 유지한다.
+
+- `slsa_predicate`: 빈 repository, commit, workflow path 포함
+- `fulcio_oidc`: 빈 issuer, subject, subject_repo, subject_workflow 및 빈 SAN/custom OID 객체 포함
+- `rekor`: `present: false`, `logIndex: null`, `integratedTime: null` 포함
+
+이제 Consumer Gate는 validation status가 `PASS`, `FAIL`, `ERROR` 중 무엇이든 동일한 JSON shape를 기준으로 결과를 처리할 수 있다.
+
+### 파일 출력 실패 시 Graceful Fallback
+
+`main.py`의 `write_json()` 함수에 I/O fault tolerance를 추가했다.
+
+기존에는 `--output` 옵션으로 지정한 파일에 쓰는 과정에서 `PermissionError`, `FileNotFoundError`, 기타 `OSError`가 발생하면 프로그램이 예외와 함께 종료될 수 있었다. 이는 보안 게이트 환경에서 결과 JSON을 받지 못하는 문제로 이어질 수 있다.
+
+수정 후에는 파일 쓰기 실패 시 다음과 같이 동작한다.
+
+1. stderr에 warning 메시지 출력
+2. 프로그램 비정상 종료 방지
+3. 동일한 JSON 결과를 stdout으로 fallback 출력
+
+즉, 파일 저장은 실패하더라도 TrustGate의 판단 결과는 계속 전달된다.
+
+### Fulcio Certificate Chain 입력 포맷 확장
+
+`oidc_parser.py`의 `_extract_leaf_certificate_bytes()`가 더 다양한 Sigstore bundle 형태를 처리하도록 개선되었다.
+
+기존에는 `x509CertificateChain`이 dictionary이고 내부에 `certificates` 배열이 있는 구조만 안정적으로 처리했다. 그러나 실제 bundle이나 테스트 fixture에서는 certificate chain이 raw PEM string 또는 PEM string list로 제공될 수 있다.
+
+수정 후 지원하는 형태는 다음과 같다.
+
+- `x509CertificateChain`이 dictionary인 경우
+- `x509CertificateChain`이 PEM string인 경우
+- `x509CertificateChain`이 PEM string list인 경우
+- 별도 `certificate` 필드가 있는 경우
+
+이를 통해 Fulcio OIDC parser는 Sigstore bundle 구조 차이에 더 강하게 대응할 수 있게 되었다.
+
+### 통합 테스트 추가
+
+이번 보안 강화 패치를 검증하기 위해 `test_integration.py`를 추가했다.
+
+pytest 기반 테스트는 다음 edge case를 검증한다.
+
+- workflow claim 누락 시 `OIDC_MISMATCH`로 `FAIL` 반환
+- ERROR schema가 PASS schema와 동일한 top-level key를 포함
+- 파일 쓰기 실패 시 stderr warning 및 stdout fallback 수행
+- `x509CertificateChain`이 PEM string 또는 PEM list여도 안전하게 처리
+
+현재 해당 통합 테스트는 전체 통과 상태이며, 보안 패치가 실제 동작으로 고정되었음을 확인했다.
+
+---
+
 ## End-to-End Pipeline 테스트
 
 초기 end-to-end 검증은 `run_test.py`를 통해 수행했다. 이 스크립트는 `vite@5.2.0`을 하드코딩해 npm attestation API 호출, DSSE 추출, predicate 파싱, OIDC/Rekor 파싱, cross-validation까지 이어지는 흐름을 빠르게 검증하는 역할을 했다.
@@ -291,7 +367,11 @@ python main.py @scope/package 1.0.0 --timeout 30
 - `main.py` 기반 production-ready CLI 도구 제공
 - `-o`/`--output` 파일 저장 및 `--timeout` 설정 지원
 - 네트워크, JSON, DSSE, OIDC, Rekor, validation, schema mapping 단계별 방어적 error boundary 구현
+- workflow identity 누락을 `OIDC_MISMATCH`로 처리해 silent-pass 우회 가능성 차단
+- PASS/FAIL/ERROR 상태에서 동일한 top-level JSON schema shape 유지
+- 파일 출력 실패와 다양한 Fulcio certificate chain 입력 포맷에 대한 graceful fallback 구현
 - `requirements.txt`를 통해 production dependency 명시
+- `test_integration.py` 기반 보안 및 안정성 edge case 회귀 테스트 추가
 - `vite@5.2.0` 대상 end-to-end `PASS` 검증 완료
 - 존재하지 않는 package 및 legacy package에 대한 graceful error document 생성 확인
 
