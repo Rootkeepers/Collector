@@ -2,10 +2,10 @@ import json
 import argparse
 import sys
 
-from github_collector import (
-    collect_github_evidence,
-    GithubRateLimitError
-)
+try:
+    from .github_collector import collect_github_evidence, GithubRateLimitError
+except ImportError:  # pragma: no cover - supports direct execution from this folder
+    from github_collector import collect_github_evidence, GithubRateLimitError
 
 def main():
     parser = argparse.ArgumentParser(

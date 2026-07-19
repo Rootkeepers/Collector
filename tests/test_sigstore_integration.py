@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from cross_validator import validate_oidc_matches_predicate
-from main import write_json
-from oidc_parser import OIDCParseError, _extract_leaf_certificate_bytes
-from schema_mapper import build_error_schema
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from rootkeepers.collectors.sigstore.cross_validator import (
+    validate_oidc_matches_predicate,
+)
+from rootkeepers.collectors.sigstore.main import write_json
+from rootkeepers.collectors.sigstore.oidc_parser import (
+    OIDCParseError,
+    _extract_leaf_certificate_bytes,
+)
+from rootkeepers.collectors.sigstore.schema_mapper import build_error_schema
 
 
 PEM_CERTIFICATE = """-----BEGIN CERTIFICATE-----
@@ -101,7 +112,9 @@ def test_build_error_schema_contains_pass_schema_dummy_keys() -> None:
     }
 
 
-def test_write_json_falls_back_to_stdout_on_output_file_oserror(capsys: pytest.CaptureFixture[str]) -> None:
+def test_write_json_falls_back_to_stdout_on_output_file_oserror(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     document = {"schema_version": "srp.track-c.v1", "validation": {"status": "PASS"}}
 
     with patch.object(Path, "write_text", side_effect=OSError("permission denied")):

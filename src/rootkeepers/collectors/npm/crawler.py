@@ -74,7 +74,7 @@ def save_schema_mapping(
     metadata: dict,
     artifact: dict,
     attestation_status: str,
-    output_filename: str = "schema_result.json",
+    output_filename: str | None = "schema_result.json",
 ) -> dict:
     """
     [4] 공통 스키마 매핑 및 저장
@@ -98,7 +98,8 @@ def save_schema_mapping(
         "result": {},    # 판정 로직 제외로 빈 칸 유지
     }
 
-    with open(output_filename, "w", encoding="utf-8") as f:
-        json.dump(schema_result, f, indent=2, ensure_ascii=False)
+    if output_filename is not None:
+        with open(output_filename, "w", encoding="utf-8") as f:
+            json.dump(schema_result, f, indent=2, ensure_ascii=False)
 
     return schema_result

@@ -11,16 +11,28 @@ from urllib.parse import quote
 
 import requests
 
-from bundle_parser import BundleParseError, extract_predicate_from_dsse
-from cross_validator import CrossValidationError, validate_oidc_matches_predicate
-from oidc_parser import OIDCParseError, parse_fulcio_oidc_info
-from predicate_parser import parse_slsa_predicate
-from rekor_parser import RekorParseError, parse_rekor_log_info
-from schema_mapper import (
-    SchemaMappingError,
-    build_error_schema,
-    build_release_lineage_schema,
-)
+try:
+    from .bundle_parser import BundleParseError, extract_predicate_from_dsse
+    from .cross_validator import CrossValidationError, validate_oidc_matches_predicate
+    from .oidc_parser import OIDCParseError, parse_fulcio_oidc_info
+    from .predicate_parser import parse_slsa_predicate
+    from .rekor_parser import RekorParseError, parse_rekor_log_info
+    from .schema_mapper import (
+        SchemaMappingError,
+        build_error_schema,
+        build_release_lineage_schema,
+    )
+except ImportError:  # pragma: no cover - supports direct execution from this folder
+    from bundle_parser import BundleParseError, extract_predicate_from_dsse
+    from cross_validator import CrossValidationError, validate_oidc_matches_predicate
+    from oidc_parser import OIDCParseError, parse_fulcio_oidc_info
+    from predicate_parser import parse_slsa_predicate
+    from rekor_parser import RekorParseError, parse_rekor_log_info
+    from schema_mapper import (
+        SchemaMappingError,
+        build_error_schema,
+        build_release_lineage_schema,
+    )
 
 
 NPM_ATTESTATIONS_BASE_URL = "https://registry.npmjs.org/-/npm/v1/attestations"

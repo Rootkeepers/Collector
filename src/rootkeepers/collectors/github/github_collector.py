@@ -1,6 +1,11 @@
 import os
-from github import Github
+from pathlib import Path
+
+from dotenv import load_dotenv
+from github import Github, Auth  # Auth 추가
 from github import GithubException, BadCredentialsException, UnknownObjectException, RateLimitExceededException
+
+load_dotenv(Path(__file__).resolve().parents[4] / ".env")
 
 class GithubRateLimitError(Exception):
     pass
@@ -15,7 +20,8 @@ def get_repo(owner_repo):
         raise RuntimeError("GITHUB_TOKEN 환경변수가 없습니다.")
 
     try:  # GitHub repository access
-        g = Github(token)
+        auth = Auth.Token(token)         # 토큰 객체 생성
+        g = Github(auth=auth)            # 최신 방식으로 인증
         repo = g.get_repo(owner_repo)
         return g, repo
 

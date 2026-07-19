@@ -1,0 +1,104 @@
+# Python bytecode / runtime artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.env
+.venv
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Secrets / local keys
+*.key
+.env.local
+.env.*.local
+
+# Build / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Test / coverage / type-checking caches
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+cython_debug/
+
+# Framework / tooling outputs
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+instance/
+.webassets-cache
+.scrapy/
+docs/_build/
+.pybuilder/
+target/
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+.pdm.toml
+__pypackages__/
+celerybeat-schedule
+celerybeat.pid
+*.sage.py
+/site
+poetry.toml
+pyrightconfig.json
+
+# Project collector outputs
+schema_result.json
+release_lineage_report.json
+test_bundle.json
+*.log
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
