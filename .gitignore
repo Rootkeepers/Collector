@@ -102,3 +102,6 @@ test_bundle.json
 .vscode/
 .idea/
 .DS_Store
+node_modules/
+package.json
+package-lock.json
