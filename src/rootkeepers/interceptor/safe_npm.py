@@ -212,35 +212,3 @@ def run_real_npm(args: list[str]) -> int:
     npm_path = find_real_npm()
     completed = subprocess.run([npm_path, *args], check=False)
     return completed.returncode
-
-
-def main() -> int:
-    args = sys.argv[1:]
-
-    if not args:
-        return run_real_npm(args)
-
-    subcommand = args[0]
-
-    # install/i가 아니면 검사 없이 그대로 통과 (npq-hero 방식)
-    if subcommand not in ("install", "i"):
-        return run_real_npm(args)
-
-    targets = parse_install_targets(args[1:])
-
-    # 대상 패키지가 없으면 (예: "npm install"만 실행 = package.json 기준 설치)
-    # 현재는 개별 패키지 지정 케이스만 검사 대상으로 처리
-    # TODO: package.json/lock 파일 기반 전체 설치 케이스 처리 (6.2/6.3 항목 연계)
-    if not targets:
-        print("[INFO] 개별 패키지 미지정 설치는 아직 검사 대상이 아닙니다. 그대로 진행합니다.")
-        return run_real_npm(args)
-
-    if not gate_install(targets):
-        print("[HALTED] 위험 패키지가 감지되어 설치를 중단합니다.")
-        return 1
-
-    return run_real_npm(args)
-
-
-if __name__ == "__main__":
-    sys.exit(main())
