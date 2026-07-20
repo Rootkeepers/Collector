@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-from rootkeepers.collectors.npm.main import collect_npm_release
+from rootkeepers.collectors.npm._main_ import collect_npm_release
 
 
 SCHEMA_VERSION = "rootkeepers.release-lineage.v1"
@@ -234,7 +234,7 @@ def _collect_sigstore(
     version: str,
     timeout: int,
 ) -> dict[str, Any]:
-    from rootkeepers.collectors.sigstore.main import collect_release_lineage
+    from rootkeepers.collectors.sigstore._main_ import collect_release_lineage
 
     return collect_release_lineage(package_name, version, timeout=timeout)
 

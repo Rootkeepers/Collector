@@ -19,7 +19,26 @@ from enum import Enum
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+def _find_project_root(start_dir: Path) -> Path:
+    """`safe_npm.py`가 어느 위치로 옮겨져도 안전하게 레포 루트를 찾는다.
+
+    `requirements.txt`나 `.git`이 있는 폴더를 만날 때까지 상위 디렉토리를
+    거슬러 올라가며 찾는다. 그래서 이 파일이 나중에 또 다른 위치로 옮겨져도
+    이 부분을 다시 고칠 필요가 없다.
+
+    Args:
+        start_dir: 탐색을 시작할 디렉토리 (보통 이 파일이 있는 폴더).
+
+    Returns:
+        레포 루트로 판단되는 디렉토리. 표식을 못 찾으면 `start_dir` 그대로 반환.
+    """
+    for candidate in (start_dir, *start_dir.parents):
+        if (candidate / "requirements.txt").exists() or (candidate / ".git").exists():
+            return candidate
+    return start_dir
+
+
+PROJECT_ROOT = _find_project_root(Path(__file__).resolve().parent)
 SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -31,7 +50,7 @@ try:
 except ImportError:  # pragma: no cover - dotenv is a soft dependency here
     pass
 
-from rootkeepers.engine.lineage import collect_release_lineage_report, evaluate_risk
+from rootkeepers.interceptor.lineage import collect_release_lineage_report, evaluate_risk
 
 
 class CollectorError(Exception):
