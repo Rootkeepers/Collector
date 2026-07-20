@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import argparse
-import json
 import re
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -171,47 +167,6 @@ def normalize_github_repository(repo_url: str | None) -> str | None:
     return f"{parts[0]}/{parts[1]}"
 
 
-def write_json(document: dict[str, Any], output_path: Path | None) -> None:
-    """JSON을 stdout 또는 파일로 출력한다."""
-    rendered = json.dumps(document, indent=2, ensure_ascii=False)
-    if output_path is None:
-        print(rendered)
-        return
-    output_path.write_text(rendered + "\n", encoding="utf-8")
-
-
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="통합 npm 릴리스 계보 리포트를 수집한다."
-    )
-    parser.add_argument("package_name", help="npm 패키지명 (예: vite, @scope/name)")
-    parser.add_argument("version", help="npm 패키지 버전 (예: 5.2.0)")
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        help="결과 JSON을 stdout 대신 이 파일에 저장한다",
-    )
-    parser.add_argument(
-        "--sigstore-timeout",
-        type=int,
-        default=15,
-        help="npm attestation 요청 타임아웃(초, 기본값: 15)",
-    )
-    return parser.parse_args(argv)
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv if argv is not None else sys.argv[1:])
-    report = collect_release_lineage_report(
-        args.package_name,
-        args.version,
-        sigstore_timeout=args.sigstore_timeout,
-    )
-    write_json(report, args.output)
-    return 0
-
-
 def _collect_npm(package_name: str, version: str) -> dict[str, Any]:
     result = collect_npm_release(package_name, version)
     if result is None:
@@ -320,7 +275,3 @@ def _build_summary(track_results: dict[str, dict[str, Any]]) -> dict[str, Any]:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
