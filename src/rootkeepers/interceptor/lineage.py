@@ -180,6 +180,12 @@ def normalize_github_repository(repo_url: str | None) -> str | None:
 
     cleaned = repo_url.strip()
     cleaned = re.sub(r"^git\+", "", cleaned)
+    # npm repository.url에 ``#main``/``#master`` 같은 브랜치 fragment가 붙는
+    # 경우가 있다 (예: ``git+https://github.com/owner/repo.git#main``).
+    # ``.git`` 제거보다 먼저 잘라내지 않으면 문자열 끝이 ``.git``이 아니게
+    # 되어 뒤의 ``.git$`` 정규식이 매칭되지 않고, owner_repo에 ``.git``이
+    # 그대로 남아 존재하지 않는 저장소로 조회하게 된다.
+    cleaned = re.sub(r"[#?].*$", "", cleaned)
     cleaned = re.sub(r"\.git$", "", cleaned)
 
     ssh_match = re.match(r"git@github\.com:(?P<owner>[^/]+)/(?P<repo>[^/]+)$", cleaned)
