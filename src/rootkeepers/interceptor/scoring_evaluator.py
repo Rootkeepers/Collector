@@ -11,6 +11,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Final, Mapping
 
+from rootkeepers.interceptor.detailed_rule_engine import (
+    evaluate_detailed_evidence,
+    evidence_from_lineage,
+)
+
 
 class RuleName(str, Enum):
     """점수 평가 대상인 공급망 보안 규칙 이름."""
@@ -219,16 +224,19 @@ def evaluate_lineage_report(
     report: Mapping[str, Any],
     policy: ScoringPolicy = DEFAULT_POLICY,
 ) -> dict[str, Any]:
-    """통합 계보 보고서의 6개 보안 규칙을 평가해 인터셉터 호환 결과를 만든다.
+    """통합 계보 보고서의 세부 6개 보안 규칙을 평가해 인터셉터 결과를 만든다.
 
     Args:
         report: 수집기가 생성한 릴리스 계보 보고서.
-        policy: 규칙별 패널티와 RISK 임계값을 가진 점수 정책.
+        policy: 이전 단순 상태 평가 호출과의 호환성을 위한 정책 인자.
 
     Returns:
-        score, verdict, threshold, rules를 포함한 JSON 호환 점수 사전.
+        score, verdict, threshold, 규칙별 세부 신호를 포함한 JSON 호환 사전.
     """
-    return evaluate_rule_states(extract_rule_states_from_lineage(report), policy).to_dict()
+    # UPDATE: 규칙당 하나의 고정 패널티 대신 현재 증거와 과거 기준선을 분리해
+    # 평가하여, 데이터 결측을 위험 점수로 오인하지 않도록 상세 엔진에 위임한다.
+    del policy
+    return evaluate_detailed_evidence(evidence_from_lineage(report))
 
 
 def _validate_policy(policy: ScoringPolicy) -> None:
