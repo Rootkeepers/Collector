@@ -9,6 +9,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from rootkeepers.collectors.npm._main_ import collect_npm_release
+from rootkeepers.interceptor.scoring_evaluator import evaluate_lineage_report
 
 
 SCHEMA_VERSION = "rootkeepers.release-lineage.v1"
@@ -118,59 +119,17 @@ def collect_release_lineage_report(
 
 
 def evaluate_risk(report: dict[str, Any]) -> dict[str, Any]:
-    """계보 리포트를 기반으로 한 임시 PASS/RISK/UNVERIFIABLE 판정.
-
-    참고: 이 함수는 아직 없는 정식 탐지 규칙 엔진(Orphan Release, Unreviewed,
-    Workflow Drift, OIDC Mismatch, Unexpected Builder, Tag/Identity Drift —
-    5.1~5.6 항목)과 0~100 신뢰 점수 모델(5.7)이 완성되기 전까지 쓰는 임시
-    대체 로직이다. 지금은 (a) 각 트랙이 성공했는지와 (b) Track C 내부에서
-    이미 계산된 Sigstore OIDC-mismatch 교차 검증이 통과했는지만 확인한다.
-    규칙 엔진이 준비되면 이 함수는 통째로 교체되어야 한다.
+    """계보 보고서의 6개 보안 규칙을 점수화해 인터셉터 결정을 반환한다.
 
     Args:
-        report: ``collect_release_lineage_report``의 반환값.
+        report: ``collect_release_lineage_report``가 생성한 통합 증거 보고서.
 
     Returns:
-        ``verdict``("PASS" | "RISK" | "UNVERIFIABLE"), 잠정 ``score``
-        (0~100), 사람이 읽을 수 있는 ``reason``을 담은 dict.
+        점수, RISK 차단 여부, 임계값, 규칙별 감사 근거를 담은 사전.
     """
-    track_statuses = report.get("summary", {}).get("track_statuses", {})
-    tracks = report.get("tracks", {})
-
-    if track_statuses.get("npm") != "SUCCESS":
-        return _risk_verdict(
-            "UNVERIFIABLE",
-            0,
-            "npm 메타데이터 수집에 실패해 계보 확인을 시작할 수 없음",
-        )
-
-    if track_statuses.get("sigstore") == "SUCCESS":
-        sigstore_data = tracks.get("sigstore", {}).get("data") or {}
-        validation = sigstore_data.get("validation", {})
-        if validation.get("status") == "FAIL" or validation.get("passed") is False:
-            mismatches = []
-            for rule in validation.get("rules", []):
-                mismatches.extend(rule.get("mismatches", []))
-            reason = "; ".join(
-                m.get("message", "") for m in mismatches if m.get("message")
-            ) or "Sigstore OIDC/서명 신원이 빌드 출처와 일치하지 않음"
-            return _risk_verdict("RISK", 10, reason)
-
-    incomplete_tracks = [
-        name for name, status in track_statuses.items() if status != "SUCCESS"
-    ]
-    if incomplete_tracks:
-        return _risk_verdict(
-            "UNVERIFIABLE",
-            50,
-            f"일부 계보 트랙을 확인할 수 없음: {', '.join(sorted(incomplete_tracks))}",
-        )
-
-    return _risk_verdict("PASS", 90, "npm/GitHub/Sigstore 계보 확인 완료, 이상 없음")
-
-
-def _risk_verdict(verdict: str, score: int, reason: str) -> dict[str, Any]:
-    return {"verdict": verdict, "score": score, "reason": reason}
+    # UPDATE: 임시 트랙 상태 판정 대신 6개 규칙의 누적 패널티를 사용해
+    # 정상 패키지의 단일 운영 관행만으로 차단되는 오탐을 줄인다.
+    return evaluate_lineage_report(report)
 
 
 def normalize_github_repository(repo_url: str | None) -> str | None:
