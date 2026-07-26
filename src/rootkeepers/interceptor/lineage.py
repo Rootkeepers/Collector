@@ -37,9 +37,9 @@ def collect_release_lineage_report(
     npm_result = _run_track("npm", lambda: _collect_npm(package_name, version))
 
     artifact = _artifact_from_npm(npm_result)
-    git_head = artifact.get("git_head")
-    repo_url = artifact.get("repo_url")
-    owner_repo = normalize_github_repository(repo_url)
+    npm_git_head = artifact.get("git_head")
+    npm_repo_url = artifact.get("repo_url")
+    npm_owner_repo = normalize_github_repository(npm_repo_url)
 
     # npm 트랙이 version=None을 latest로 resolve했을 수 있으므로, downstream
     # 트랙(특히 Sigstore attestation URL 조립)에는 원본 version이 아니라
@@ -47,21 +47,48 @@ def collect_release_lineage_report(
     # "bare install" 케이스에서 Sigstore 요청 URL에 "None"이 그대로 박힌다.
     resolved_version = _resolved_version_from_npm(npm_result, fallback=version)
 
-    downstream_tracks: dict[str, Callable[[], dict[str, Any]]] = {
-        "github": lambda: _collect_github(owner_repo, git_head),
-        "sigstore": lambda: _collect_sigstore(
-            package_name, resolved_version, sigstore_timeout
-        ),
-    }
-
     track_results = {"npm": npm_result}
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {
-            executor.submit(_run_track, name, collector): name
-            for name, collector in downstream_tracks.items()
+    github_git_head = npm_git_head
+    github_owner_repo = npm_owner_repo
+    commit_source = "npm.artifact.gitHead" if npm_git_head else None
+    repository_source = "npm.artifact.repository" if npm_owner_repo else None
+
+    if npm_git_head:
+        # The normal path has all of Track B's inputs.  Keep GitHub and
+        # Sigstore concurrent to avoid adding latency to ordinary packages.
+        downstream_tracks: dict[str, Callable[[], dict[str, Any]]] = {
+            "github": lambda: _collect_github(github_owner_repo, github_git_head),
+            "sigstore": lambda: _collect_sigstore(
+                package_name, resolved_version, sigstore_timeout
+            ),
         }
-        for future in as_completed(futures):
-            track_results[futures[future]] = future.result()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {
+                executor.submit(_run_track, name, collector): name
+                for name, collector in downstream_tracks.items()
+            }
+            for future in as_completed(futures):
+                track_results[futures[future]] = future.result()
+    else:
+        # npm's dist.gitHead is optional and is frequently absent for
+        # monorepo/automated releases.  In that case Track C's signed SLSA
+        # provenance is the stronger source of the build commit.  Track B
+        # must wait for it instead of being skipped in parallel.
+        sigstore_result = _run_track(
+            "sigstore",
+            lambda: _collect_sigstore(package_name, resolved_version, sigstore_timeout),
+        )
+        track_results["sigstore"] = sigstore_result
+        slsa_repository, slsa_commit = _slsa_git_reference(sigstore_result)
+        if slsa_commit:
+            github_git_head = slsa_commit
+            commit_source = "sigstore.slsa_predicate.commit"
+        if slsa_repository:
+            github_owner_repo = normalize_github_repository(slsa_repository)
+            repository_source = "sigstore.slsa_predicate.repository"
+        track_results["github"] = _run_track(
+            "github", lambda: _collect_github(github_owner_repo, github_git_head)
+        )
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -74,9 +101,15 @@ def collect_release_lineage_report(
         },
         "pipeline": {
             "npm_to_github": {
-                "git_head": git_head,
-                "repository_url": repo_url,
-                "owner_repo": owner_repo,
+                "git_head": npm_git_head,
+                "repository_url": npm_repo_url,
+                "owner_repo": npm_owner_repo,
+                "github_lookup": {
+                    "git_head": github_git_head,
+                    "owner_repo": github_owner_repo,
+                    "commit_source": commit_source,
+                    "repository_source": repository_source,
+                },
             }
         },
         "tracks": track_results,
@@ -157,7 +190,10 @@ def normalize_github_repository(repo_url: str | None) -> str | None:
         return cleaned.removeprefix("github:").strip("/")
 
     parsed = urlparse(cleaned)
-    if parsed.netloc.lower() != "github.com":
+    # ``git+ssh://git@github.com/owner/repo.git`` is a common npm repository
+    # form.  ``netloc`` includes the username in that case, while ``hostname``
+    # remains github.com.
+    if (parsed.hostname or "").lower() != "github.com":
         return None
 
     parts = [part for part in parsed.path.split("/") if part]
@@ -192,6 +228,30 @@ def _collect_sigstore(
     from rootkeepers.collectors.sigstore._main_ import collect_release_lineage
 
     return collect_release_lineage(package_name, version, timeout=timeout)
+
+
+def _slsa_git_reference(sigstore_track: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Return repository and commit carried by a successful SLSA result.
+
+    The Sigstore collector normalizes the relevant predicate fields under
+    ``slsa_predicate``.  This helper intentionally treats malformed or failed
+    Track C results as missing evidence, so the GitHub track remains
+    ``SKIPPED`` rather than guessing a commit.
+    """
+    if sigstore_track.get("status") != "SUCCESS":
+        return None, None
+    data = sigstore_track.get("data")
+    if not isinstance(data, dict):
+        return None, None
+    predicate = data.get("slsa_predicate")
+    if not isinstance(predicate, dict):
+        return None, None
+    repository = predicate.get("repository")
+    commit = predicate.get("commit")
+    return (
+        repository if isinstance(repository, str) and repository else None,
+        commit if isinstance(commit, str) and commit else None,
+    )
 
 
 def _run_track(name: str, collector: Callable[[], dict[str, Any]]) -> dict[str, Any]:
