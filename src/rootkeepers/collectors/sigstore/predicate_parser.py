@@ -30,14 +30,15 @@ def _safe_get_string(value: Any, key: str) -> str:
 def parse_slsa_predicate(predicate: dict) -> dict:
     """Extract core provenance fields from a parsed SLSA predicate.
 
-    The returned dictionary always contains exactly three keys:
-    ``repository``, ``commit``, and ``workflow_path``. Missing or malformed
+    The returned dictionary always contains the repository, commit, workflow
+    path, and SLSA builder identity. Missing or malformed
     fields are represented as empty strings instead of raising exceptions.
     """
     result = {
         "repository": "",
         "commit": "",
         "workflow_path": "",
+        "builder_id": "",
     }
 
     if not isinstance(predicate, dict):
@@ -54,6 +55,15 @@ def parse_slsa_predicate(predicate: dict) -> dict:
         or _safe_get_string(source, "repository")
     )
     result["workflow_path"] = _safe_get_string(workflow, "path")
+
+    run_details = _safe_get_mapping(predicate, "runDetails")
+    builder = _safe_get_mapping(run_details, "builder")
+    # Older provenance layouts sometimes carry builder directly at predicate
+    # level; retain that fallback without guessing a value.
+    result["builder_id"] = (
+        _safe_get_string(builder, "id")
+        or _safe_get_string(_safe_get_mapping(predicate, "builder"), "id")
+    )
 
     resolved_dependencies = build_definition.get("resolvedDependencies")
     if isinstance(resolved_dependencies, list):

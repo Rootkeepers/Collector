@@ -78,6 +78,7 @@ def collect_reviewers(pr):
 
             reviewers.append({
                 "login": review.user.login if review.user else None,        # Reviewer username
+                "author_association": review.raw_data.get("author_association"),
                 "state": review.state,                                      # Review status
                 "approved": review.state == "APPROVED",                     # Approval result
                 "submitted_at": review.submitted_at.isoformat()             # Review submission time
@@ -106,6 +107,8 @@ def collect_PR(commit):
             pr_info.append({
                 "number": pr.number,                    # Pull request number
                 "title": pr.title,                      # Pull request title
+                "author": pr.user.login if pr.user else None,
+                "merged_by": pr.merged_by.login if pr.merged_by else None,
                 "merged": pr.merged,                    # Merge status
                 "merged_at": pr.merged_at.isoformat()   # Merge time
                 if pr.merged_at else None,
@@ -129,8 +132,10 @@ def collect_commit(repo, git_head):
             "sha": commit.sha,                  # Commit SHA
             "author": commit.commit.author.name # Commit author
             if commit.commit.author else None,
+            "author_login": commit.author.login if commit.author else None,
             "timestamp": commit.commit.author.date.isoformat()  # Commit timestamp
             if commit.commit.author else None,
+            "signed": bool(getattr(commit.commit, "verification", None) and commit.commit.verification.verified),
             "pull_requests": collect_PR(commit) # Associated pull requests
         }
 
@@ -148,10 +153,10 @@ def collect_matching_tags(repo, git_head):
     try:  # Collect matching tag information
         tags = repo.get_tags()
 
-        for i, tag in enumerate(tags):
-            if i >= 10:
-                break
-
+        # The package version being evaluated may be much older than the ten
+        # newest tags.  Stopping early turns a real tag into a false
+        # ``git_tag_flip`` signal for otherwise benign historical releases.
+        for tag in tags:
             if tag.commit.sha == git_head:
                 matched_tags.append({
                     "name": tag.name,          # Tag name
@@ -199,10 +204,104 @@ def collect_workflow(repo, git_head):
     return workflow_info
 
 
+def collect_workflow_entry_points(repo, git_head):
+    """List workflow files present at a release commit.
+
+    Workflow-run API objects do not reliably expose their YAML path.  The git
+    tree at the tag commit is stable and lets the policy compare the current
+    provenance entry point with prior release-era workflow paths.
+    """
+    try:
+        tree = repo.get_git_tree(git_head, recursive=True)
+        return [
+            entry.path
+            for entry in tree.tree
+            if entry.type == "blob"
+            and entry.path.startswith(".github/workflows/")
+            and entry.path.endswith((".yml", ".yaml"))
+        ]
+    except Exception as e:
+        print("workflow path 실패:", e)
+        return None
+
+
+def workflow_modified_before_release(repo, git_head, entry_point):
+    """Check whether the provenance workflow changed in the release commit."""
+    if not entry_point:
+        return None
+    try:
+        commit = repo.get_commit(git_head)
+        parents = getattr(commit, "parents", [])
+        if not parents:
+            return False
+        comparison = repo.compare(parents[0].sha, git_head)
+        return any(
+            file.filename == entry_point
+            for file in getattr(comparison, "files", [])
+        )
+    except Exception as e:
+        print("workflow 변경 조회 실패:", e)
+        return None
+
+
+def collect_release_baseline(repo, current_git_head, *, releases=None, limit=5):
+    """Collect evidence for the previous distinct tagged releases.
+
+    A release entry is retained even when one optional sub-query fails.  The
+    engine can then distinguish no historical releases from a release that
+    simply has no linked PR or workflow file.
+    """
+    baseline = []
+    seen_shas = {current_git_head}
+    # npm supplies exact previous versions and their gitHeads. Prefer those
+    # refs; only fall back to tags for older callers that cannot provide them.
+    requested = releases if isinstance(releases, list) else []
+    for release in requested:
+        if not isinstance(release, dict):
+            continue
+        sha = release.get("git_head")
+        if not isinstance(sha, str) or not sha or sha in seen_shas:
+            continue
+        seen_shas.add(sha)
+        commit = collect_commit(repo, sha)
+        baseline.append({
+            "version": release.get("version"),
+            "tag": None,
+            "git_head": sha,
+            "commit": commit,
+            "tags": collect_matching_tags(repo, sha),
+            "workflow_entry_points": collect_workflow_entry_points(repo, sha),
+        })
+        if len(baseline) >= limit:
+            return {"releases": baseline, "source": "npm_versions"}
+    if requested:
+        return {"releases": baseline, "source": "npm_versions"}
+    try:
+        tags = repo.get_tags()
+        for tag in tags:
+            sha = tag.commit.sha
+            if not sha or sha in seen_shas:
+                continue
+            seen_shas.add(sha)
+            commit = collect_commit(repo, sha)
+            baseline.append({
+                "tag": tag.name,
+                "git_head": sha,
+                "commit": commit,
+                "tags": [{"name": tag.name, "sha": sha}],
+                "workflow_entry_points": collect_workflow_entry_points(repo, sha),
+            })
+            if len(baseline) >= limit:
+                break
+    except Exception as e:
+        print("baseline tag 조회 실패:", e)
+    return {"releases": baseline, "source": "github_tags"}
+
+
 # ============================
 # GitHub evidence 통합 수집
 # ============================
-def collect_github_evidence(owner_repo, git_head):
+def collect_github_evidence(owner_repo, git_head, *, baseline_releases=None, workflow_entry_point=None):
     g, repo = get_repo(owner_repo)
 
     # Collect GitHub evidence
@@ -210,6 +309,7 @@ def collect_github_evidence(owner_repo, git_head):
     commit_info = collect_commit(repo, git_head)
     tag_info = collect_matching_tags(repo, git_head)
     workflow_info = collect_workflow(repo, git_head)
+    baseline = collect_release_baseline(repo, git_head, releases=baseline_releases)
 
     # Return collected evidence
     return {
@@ -217,5 +317,7 @@ def collect_github_evidence(owner_repo, git_head):
         "rate_limit": rate_limit,          # Rate limit information
         "commit": commit_info,             # Commit information
         "tags": tag_info,                  # Matching tag information
-        "workflows": workflow_info         # Workflow run information
+        "workflows": workflow_info,        # Workflow run information
+        "workflow_modified_before_release": workflow_modified_before_release(repo, git_head, workflow_entry_point),
+        "baseline": baseline,
     }

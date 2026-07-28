@@ -90,6 +90,27 @@ def collect_release_lineage_report(
             "github", lambda: _collect_github(github_owner_repo, github_git_head)
         )
 
+    # Build historical evidence against npm's exact previous versions.  npm
+    # carries the release ordering; Sigstore fills in builder/OIDC/workflow
+    # identity and missing gitHeads; GitHub then resolves those same commits.
+    npm_baseline = _enrich_npm_baseline(
+        package_name,
+        _mapping_from_track(npm_result, "baseline"),
+        sigstore_timeout,
+    )
+    current_workflow = _slsa_workflow_path(track_results.get("sigstore", {}))
+    if github_owner_repo and github_git_head:
+        track_results["github"] = _run_track(
+            "github",
+            lambda: _collect_github(
+                github_owner_repo,
+                github_git_head,
+                baseline_releases=npm_baseline.get("releases"),
+                workflow_entry_point=current_workflow,
+            ),
+        )
+
+    github_baseline = _mapping_from_track(track_results.get("github", {}), "baseline")
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": _utc_now(),
@@ -113,6 +134,17 @@ def collect_release_lineage_report(
             }
         },
         "tracks": track_results,
+        # Keep baselines at the document root so scoring never depends on a
+        # collector-specific track layout.  The original track copies remain
+        # available for audit/debugging.
+        "baseline": {
+            # Keep the npm fields directly accessible for consumers that were
+            # introduced before per-track namespaces, while the namespaces
+            # prevent collisions as additional collectors add baselines.
+            **npm_baseline,
+            "npm": npm_baseline,
+            "github": github_baseline,
+        },
         "summary": _build_summary(track_results),
     }
 
@@ -216,14 +248,25 @@ def _collect_npm(package_name: str, version: str) -> dict[str, Any]:
     return result
 
 
-def _collect_github(owner_repo: str | None, git_head: str | None) -> dict[str, Any]:
+def _collect_github(
+    owner_repo: str | None,
+    git_head: str | None,
+    *,
+    baseline_releases: list[dict[str, Any]] | None = None,
+    workflow_entry_point: str | None = None,
+) -> dict[str, Any]:
     if not owner_repo:
         raise TrackSkipped("npm 메타데이터에서 GitHub 저장소를 알아낼 수 없습니다")
     if not git_head:
         raise TrackSkipped("npm artifact 메타데이터에 gitHead가 없습니다")
     from rootkeepers.collectors.github.github_collector import collect_github_evidence
 
-    return collect_github_evidence(owner_repo=owner_repo, git_head=git_head)
+    return collect_github_evidence(
+        owner_repo=owner_repo,
+        git_head=git_head,
+        baseline_releases=baseline_releases,
+        workflow_entry_point=workflow_entry_point,
+    )
 
 
 def _collect_sigstore(
@@ -258,6 +301,50 @@ def _slsa_git_reference(sigstore_track: dict[str, Any]) -> tuple[str | None, str
         repository if isinstance(repository, str) and repository else None,
         commit if isinstance(commit, str) and commit else None,
     )
+
+
+def _slsa_workflow_path(sigstore_track: dict[str, Any]) -> str | None:
+    data = sigstore_track.get("data")
+    if sigstore_track.get("status") != "SUCCESS" or not isinstance(data, dict):
+        return None
+    predicate = data.get("slsa_predicate")
+    workflow = predicate.get("workflow_path") if isinstance(predicate, dict) else None
+    return workflow if isinstance(workflow, str) and workflow else None
+
+
+def _enrich_npm_baseline(
+    package_name: str, baseline: dict[str, Any], timeout: int
+) -> dict[str, Any]:
+    """Attach historical Sigstore identity to npm's five prior versions."""
+    releases = baseline.get("releases") if isinstance(baseline.get("releases"), list) else []
+
+    def enrich(release: Any) -> dict[str, Any]:
+        item = dict(release) if isinstance(release, dict) else {}
+        version = item.get("version")
+        if item.get("attestation_present") is not True or not isinstance(version, str):
+            item["sigstore"] = {"status": "SKIPPED", "data": None}
+            return item
+        track = _run_track("sigstore", lambda: _collect_sigstore(package_name, version, timeout))
+        item["sigstore"] = track
+        data = track.get("data") if track.get("status") == "SUCCESS" else None
+        if not isinstance(data, dict):
+            return item
+        predicate = data.get("slsa_predicate") if isinstance(data.get("slsa_predicate"), dict) else {}
+        oidc = data.get("fulcio_oidc") if isinstance(data.get("fulcio_oidc"), dict) else {}
+        item["builder_id"] = predicate.get("builder_id")
+        item["workflow_path"] = predicate.get("workflow_path")
+        item["oidc_identity"] = oidc.get("subject")
+        if not item.get("git_head") and isinstance(predicate.get("commit"), str):
+            item["git_head"] = predicate["commit"]
+        return item
+
+    # A maximum of five historical registry requests is intentional.  It
+    # preserves bounded latency while making every baseline field auditable.
+    with ThreadPoolExecutor(max_workers=min(5, max(1, len(releases)))) as executor:
+        enriched = list(executor.map(enrich, releases)) if releases else []
+    result = dict(baseline)
+    result["releases"] = enriched
+    return result
 
 
 def _run_track(name: str, collector: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -304,6 +391,14 @@ def _artifact_from_npm(npm_result: dict[str, Any]) -> dict[str, Any]:
         return {}
     artifact = data.get("artifact")
     return artifact if isinstance(artifact, dict) else {}
+
+
+def _mapping_from_track(track: dict[str, Any], key: str) -> dict[str, Any]:
+    data = track.get("data")
+    if not isinstance(data, dict):
+        return {}
+    value = data.get(key)
+    return value if isinstance(value, dict) else {}
 
 
 def _resolved_version_from_npm(npm_result: dict[str, Any], *, fallback: str | None) -> str | None:
