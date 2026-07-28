@@ -14,6 +14,7 @@ try:
         collect_package_metadata,
         collect_artifact_info,
         collect_attestation_status,
+        collect_release_baseline,
         save_schema_mapping,
     )
 except ImportError:  # pragma: no cover - supports direct execution from this folder
@@ -22,6 +23,7 @@ except ImportError:  # pragma: no cover - supports direct execution from this fo
         collect_package_metadata,
         collect_artifact_info,
         collect_attestation_status,
+        collect_release_baseline,
         save_schema_mapping,
     )
 
@@ -47,6 +49,7 @@ def collect_npm_release(
     metadata = collect_package_metadata(raw_data, selected_version)
     artifact = collect_artifact_info(version_data)
     attestation_status = collect_attestation_status(version_data)
+    baseline = collect_release_baseline(raw_data, selected_version)
 
     return save_schema_mapping(
         package_name,
@@ -54,6 +57,7 @@ def collect_npm_release(
         metadata,
         artifact,
         attestation_status,
+        baseline,
         output_filename=output_filename,
     )
 

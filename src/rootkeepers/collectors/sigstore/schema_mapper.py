@@ -60,6 +60,7 @@ def build_release_lineage_schema(
             "repository": _string_value(predicate_info, "repository"),
             "commit": _string_value(predicate_info, "commit"),
             "workflow_path": _string_value(predicate_info, "workflow_path"),
+            "builder_id": _string_value(predicate_info, "builder_id"),
         },
         "fulcio_oidc": {
             "issuer": _string_value(oidc_info, "issuer"),
@@ -124,6 +125,7 @@ def build_error_schema(
             "repository": "",
             "commit": "",
             "workflow_path": "",
+            "builder_id": "",
         },
         "fulcio_oidc": {
             "issuer": "",

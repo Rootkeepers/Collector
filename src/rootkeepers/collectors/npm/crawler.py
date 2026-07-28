@@ -54,8 +54,66 @@ def collect_artifact_info(version_data: dict) -> dict:
     return {
         "integrity": integrity,
         "git_head": git_head,
-        "repo_url": repo_url
+        "repo_url": repo_url,
+        "publisher": _publisher_name(version_data),
     }
+
+
+def collect_release_baseline(data: dict, selected_version: str, *, limit: int = 5) -> dict:
+    """Return the five releases immediately preceding ``selected_version``.
+
+    npm's ``time`` map is the only reliable ordering source for arbitrary
+    versions (dictionary order is not a release order).  The current version
+    is excluded deliberately, so it can never make a comparison pass itself.
+    """
+    versions = data.get("versions")
+    published = data.get("time")
+    if not isinstance(versions, dict) or not isinstance(published, dict):
+        return {"publishers": [], "attestations_present": [], "releases": []}
+
+    selected_time = published.get(selected_version)
+    candidates = []
+    for version, version_data in versions.items():
+        timestamp = published.get(version)
+        if not isinstance(version, str) or not isinstance(version_data, dict) or not isinstance(timestamp, str):
+            continue
+        if version == selected_version or (isinstance(selected_time, str) and timestamp >= selected_time):
+            continue
+        candidates.append((timestamp, version, version_data))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    releases = [
+        {
+            "version": version,
+            "published_at": timestamp,
+            "publisher": _publisher_name(version_data),
+            "attestation_present": collect_attestation_status(version_data) == "PRESENT",
+            # These fields let downstream collectors compare the *same npm
+            # release*, rather than approximating history with newest Git tags.
+            "git_head": version_data.get("gitHead") if isinstance(version_data.get("gitHead"), str) else "",
+            "repo_url": _repository_url(version_data),
+        }
+        for timestamp, version, version_data in candidates[:limit]
+    ]
+    return {
+        "publishers": [release["publisher"] for release in releases if release["publisher"]],
+        "attestations_present": [release["attestation_present"] for release in releases],
+        "releases": releases,
+    }
+
+
+def _publisher_name(version_data: dict) -> str:
+    """Extract npm's per-version publisher identity without coercing objects."""
+    npm_user = version_data.get("_npmUser")
+    if isinstance(npm_user, dict) and isinstance(npm_user.get("name"), str):
+        return npm_user["name"].strip()
+    return ""
+
+
+def _repository_url(version_data: dict) -> str:
+    repository = version_data.get("repository")
+    if isinstance(repository, dict) and isinstance(repository.get("url"), str):
+        return repository["url"].strip()
+    return repository.strip() if isinstance(repository, str) else ""
 
 
 def collect_attestation_status(version_data: dict) -> str:
@@ -74,6 +132,7 @@ def save_schema_mapping(
     metadata: dict,
     artifact: dict,
     attestation_status: str,
+    baseline: dict | None = None,
     output_filename: str | None = "schema_result.json",
 ) -> dict:
     """
@@ -92,7 +151,9 @@ def save_schema_mapping(
             "git_head": artifact.get("git_head"),
             "repo_url": artifact.get("repo_url"),  # 추후 Track B 연동을 위해 저장
             "attestation": attestation_status,
+            "publisher": artifact.get("publisher", ""),
         },
+        "baseline": baseline or {"publishers": [], "attestations_present": [], "releases": []},
         "workflow": {},  # Track B(GitHub 수집기)에서 채울 칸
         "commit": {},    # Track B에서 채울 칸
         "result": {},    # 판정 로직 제외로 빈 칸 유지
