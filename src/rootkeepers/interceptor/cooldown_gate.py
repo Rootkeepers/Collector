@@ -128,3 +128,13 @@ def _fallback(pkg: str, verify: VerifyFn,
     return GateDecision(baseline, "FALLBACK" if baseline else "BLOCK",
                         f"{pkg}: 통과하는 하위 버전 없음 → "
                         + (f"구버전 {baseline} 유지" if baseline else "설치 차단"))
+
+if __name__ == "__main__":
+    # 가짜 계보 검증: 항상 PASS (흐름만 확인)
+    def verify(pkg, version):
+        return True
+
+    d = gate_package("sigstore", verify, baseline="5.0.0")
+    print("action :", d.action)
+    print("version:", d.version)
+    print("reason :", d.reason)
