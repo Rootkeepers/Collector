@@ -49,6 +49,8 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Test / coverage / type-checking caches
+.pytest_cache/
+src/rootkeepers/_local_tests/
 htmlcov/
 .tox/
 .nox/

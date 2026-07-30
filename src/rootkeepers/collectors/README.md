@@ -28,14 +28,6 @@ GitHub API 인증 정보는 코드에 직접 작성하지 않고 `.env` 파일�
 
 커밋 가능한 예시 파일로 `.env.example`을 제공하여 필요한 환경변수 이름은 문서화하되, 실제 토큰 값은 저장소에 남기지 않는 구성을 유지한다.
 
-### 4. E2E 자동화 테스트 추가
-
-통합 파이프라인의 실제 동작을 검증하기 위해 `tests/test_e2e_pipeline.py`를 추가했다. 이 테스트는 `express` 패키지의 `4.18.2` 버전을 대상으로 통합 오케스트레이터를 실행하고, npm과 GitHub 트랙이 정상적으로 성공하는지 확인한다.
-
-테스트는 `GITHUB_TOKEN` 또는 `E2E_GITHUB_TOKEN` 환경변수를 사용한다. 토큰이 없는 환경에서는 테스트를 안전하게 건너뛰며, 토큰이 설정된 환경에서는 실제 npm registry 및 GitHub API를 호출해 데이터 흐름과 인증 구성이 정상인지 검증한다.
-
-이 E2E 테스트는 단순한 단위 테스트가 아니라, Track A에서 추출한 `gitHead`와 `repository_url`이 Track B로 전달되는 전체 연결 흐름을 확인한다는 점에서 통합 품질을 검증하는 기준점 역할을 한다.
-
 ### How to Run (실행 방법)
 
 #### 1. 의존성 설치
@@ -76,12 +68,3 @@ python main.py express 4.18.2
 python main.py express 4.18.2 -o release_lineage_report.json
 ```
 
-#### 4. E2E 테스트 실행
-
-GitHub 토큰이 `.env` 또는 환경변수에 설정된 상태에서 다음 명령어를 실행한다.
-
-```powershell
-python -m pytest tests/test_e2e_pipeline.py -v
-```
-
-테스트는 최종 JSON 리포트의 `summary.track_statuses.github` 값이 `SUCCESS`인지 확인하여 GitHub 인증과 API 호출이 정상 동작하는지 검증한다. 또한 `summary.track_statuses.npm` 값이 `SUCCESS`인지 확인하여 npm collector와 오케스트레이터의 기본 데이터 흐름이 정상인지 검증한다.
