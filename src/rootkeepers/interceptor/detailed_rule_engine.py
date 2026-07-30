@@ -90,8 +90,9 @@ class DetailedScoringPolicy:
 
     weights: Mapping[DetailedRuleName, float]
     corroboration_bonus: int = 10
-    block_threshold: int = 60
-    minimum_corroborating_rules: int = 2
+    block_threshold: int = 90
+    minimum_corroborating_rules: int = 3
+    minimum_risk_band_rules: int = 3
 
 
 DEFAULT_DETAILED_POLICY: Final[DetailedScoringPolicy] = DetailedScoringPolicy(
@@ -139,8 +140,10 @@ def evaluate_detailed_evidence(
         "threshold": policy.block_threshold,
         "corroboration": {
             "activated_rule_count": len(activated),
+            "risk_band_rule_count": sum(result.band is RuleBand.RISK for result in activated),
             "bonus": corroboration,
             "minimum_required": policy.minimum_corroborating_rules,
+            "minimum_risk_band_required": policy.minimum_risk_band_rules,
         },
         "reason": _decision_reason(decision, score, results, policy),
         "rules": [
@@ -590,7 +593,12 @@ def _package_decision(
     """
     if all(result.band is RuleBand.UNVERIFIABLE for result in results):
         return PackageDecision.UNVERIFIABLE
-    if score >= policy.block_threshold and len(activated) >= policy.minimum_corroborating_rules:
+    risk_band_count = sum(result.band is RuleBand.RISK for result in activated)
+    if (
+        score >= policy.block_threshold
+        and len(activated) >= policy.minimum_corroborating_rules
+        and risk_band_count >= policy.minimum_risk_band_rules
+    ):
         return PackageDecision.RISK
     return PackageDecision.PASS
 
@@ -614,7 +622,7 @@ def _decision_reason(
     """
     active_names = [result.rule.value for result in results if result.band in {RuleBand.WARN, RuleBand.RISK}]
     if decision is PackageDecision.RISK:
-        return f"독립 위험 규칙 {', '.join(active_names)}가 동시 발동해 {score}점으로 차단 임계값 {policy.block_threshold}점 이상입니다."
+        return f"독립 위험 규칙 {', '.join(active_names)}가 동시 발동했고 RISK 밴드가 최소 {policy.minimum_risk_band_rules}개여서 {score}점 차단 임계값 {policy.block_threshold}점 이상입니다."
     if decision is PackageDecision.UNVERIFIABLE:
         return "6개 규칙 모두에 필요한 현재 증거나 과거 기준선이 없습니다."
     if active_names:
@@ -674,6 +682,8 @@ def _validate_policy(policy: DetailedScoringPolicy) -> None:
         raise ValueError("차단 임계값은 1~100 범위여야 합니다.")
     if not 1 <= policy.minimum_corroborating_rules <= len(DetailedRuleName):
         raise ValueError("최소 동시발동 규칙 수가 유효하지 않습니다.")
+    if not 1 <= policy.minimum_risk_band_rules <= policy.minimum_corroborating_rules:
+        raise ValueError("최소 RISK 밴드 규칙 수가 유효하지 않습니다.")
 
 
 def _mapping(value: Any, key: str) -> Mapping[str, Any]:

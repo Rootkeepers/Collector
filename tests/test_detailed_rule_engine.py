@@ -88,3 +88,31 @@ def test_lineage_mapping_uses_historical_sigstore_and_exact_npm_versions() -> No
     assert evidence["tag_identity_drift"]["baseline_oidc_identity"] == "old-subject"
     assert evidence["tag_identity_drift"]["current_git_or_tag_present"] is True
     assert evidence["unreviewed"]["review_governance_baseline"] is False
+
+
+def test_common_benign_drift_combination_is_not_blocked() -> None:
+    """Workflow/OIDC drift remains visible but cannot alone block install."""
+    result = evaluate_detailed_evidence(
+        {
+            "workflow_drift": {
+                "baseline_entry_points": [".github/workflows/release.yml"],
+                "current_entry_point": ".github/workflows/publish.yml",
+            },
+            "oidc_mismatch": {
+                "attestation_present": True,
+                "npm_repository": "github.com/acme/pkg",
+                "oidc_repository": "github.com/acme/pkg",
+                "provenance_entry_point": ".github/workflows/publish.yml",
+                "oidc_workflow": ".github/workflows/release.yml",
+            },
+        }
+    )
+    assert result["score"] == 100
+    assert result["verdict"] == "PASS"
+    assert result["corroboration"] == {
+        "activated_rule_count": 2,
+        "risk_band_rule_count": 0,
+        "bonus": 10,
+        "minimum_required": 3,
+        "minimum_risk_band_required": 3,
+    }
