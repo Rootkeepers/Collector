@@ -17,6 +17,8 @@ import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from rootkeepers.interceptor.lineage import collect_release_lineage_report, evaluate_risk
+from rootkeepers.interceptor.cooldown import check_cooldown  
 
 
 def _find_project_root(start_dir: Path) -> Path:
@@ -151,6 +153,19 @@ def check_package(package_spec: str) -> RiskResult:
     """
     name, version = _split_package_spec(package_spec)
 
+    # 쿨다운 게이트: 신버전이 배포된 지 충분히 지났는지 먼저 확인.
+    # 미경과면 아직 관찰 기간이므로 무거운 계보 수집을 건너뛰고 보류 처리한다.
+    if version is not None:
+        cd = check_cooldown(name, version)
+        print(f"  [cooldown] {cd.reason}")
+        if not cd.passed:
+            return RiskResult(
+                package_spec=package_spec,
+                verdict=Verdict.UNVERIFIABLE,
+                score=0,
+                reason=f"쿨다운 미경과 ({cd.remain_days:.1f}일 대기)",
+            )
+        
     try:
         report = collect_release_lineage_report(name, version)
         risk = evaluate_risk(report)
