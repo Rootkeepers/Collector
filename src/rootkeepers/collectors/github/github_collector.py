@@ -130,6 +130,7 @@ def collect_commit(repo, git_head):
 
         return {
             "sha": commit.sha,                  # Commit SHA
+            "found": True,                      # gitHead가 GitHub에 실존함
             "author": commit.commit.author.name # Commit author
             if commit.commit.author else None,
             "author_login": commit.author.login if commit.author else None,
@@ -138,6 +139,15 @@ def collect_commit(repo, git_head):
             "signed": bool(getattr(commit.commit, "verification", None) and commit.commit.verification.verified),
             "pull_requests": collect_PR(commit) # Associated pull requests
         }
+
+    except GithubException as e:
+        # 404/422는 "gitHead가 GitHub에 존재하지 않는다"는 확정적 신호이므로,
+        # rate limit·네트워크 오류 등 불확실한 실패와 구분해서 반환한다.
+        if e.status in (404, 422):
+            print(f"commit 없음: GitHub에 존재하지 않는 gitHead({git_head}): {e.status}")
+            return {"found": False, "sha": git_head}
+        print("commit 실패:", e)
+        return None
 
     except Exception as e:  # Exception handling
         print("commit 실패:", e)

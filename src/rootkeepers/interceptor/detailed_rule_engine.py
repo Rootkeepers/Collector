@@ -168,12 +168,20 @@ def evidence_from_lineage(report: Mapping[str, Any]) -> dict[str, Any]:
     sigstore = tracks.get("sigstore") if isinstance(tracks, Mapping) else None
     github_data = _mapping(github, "data")
     commit = _mapping(github_data, "commit")
+    commit_exists = commit.get("found") if isinstance(commit.get("found"), bool) else None
     pull_requests = commit.get("pull_requests") if isinstance(commit.get("pull_requests"), list) else None
     sigstore_data = _mapping(sigstore, "data")
     predicate = _mapping(sigstore_data, "slsa_predicate")
     oidc = _mapping(sigstore_data, "fulcio_oidc")
     pipeline = _mapping(report, "pipeline")
     github_lookup = _mapping(_mapping(pipeline, "npm_to_github"), "github_lookup")
+    # npm의 gitHead가 비어있고 Sigstore provenance도 대체 커밋을 못 찾으면
+    # GitHub 트랙 자체가 SKIPPED되어 commit_exists가 None으로 남는다. 그런데
+    # 저장소는 알고 있는데(owner_repo는 확인됨) 어디서도 gitHead 후보를 못
+    # 찾았다는 건, 특정 SHA를 조회했다가 404를 받은 것과 같은 수준의 확정적
+    # 증거다 (실제 ua-parser-js 사고의 ``gitHead: None`` 패턴과 정확히 일치).
+    if commit_exists is None and github_lookup.get("owner_repo") and not github_lookup.get("git_head"):
+        commit_exists = False
     npm_data = _mapping(_mapping(tracks, "npm"), "data")
     artifact = npm_data.get("artifact")
     npm_artifact = artifact if isinstance(artifact, Mapping) else {}
@@ -236,6 +244,7 @@ def evidence_from_lineage(report: Mapping[str, Any]) -> dict[str, Any]:
     current_attestation = _attestation_present(npm_artifact)
     evidence = {
         "orphan_release": {
+            "commit_exists": commit_exists,
             "has_linked_pr": None if pull_requests is None else bool(pull_requests),
             "governance_pr_baseline": _baseline_majority(historical_pr_flags),
             "direct_push_prohibited": _baseline_majority(historical_pr_flags),
@@ -349,7 +358,8 @@ def _annotate_evidence_status(evidence: dict[str, Any]) -> dict[str, Any]:
 
 
 def _evaluate_orphan_release(evidence: Mapping[str, Any]) -> DetailedRuleResult:
-    """PR 부재·보호 우회·즉시 태그·새 author·서명 결측을 점수화한다.
+    """gitHead 실존 여부를 최우선으로, PR 부재·보호 우회·즉시 태그·새
+    author·서명 결측을 점수화한다.
 
     Args:
         evidence: 현재 커밋과 과거 거버넌스 기준선 증거.
@@ -357,6 +367,23 @@ def _evaluate_orphan_release(evidence: Mapping[str, Any]) -> DetailedRuleResult:
     Returns:
         Orphan Release 규칙의 점수·밴드·세부 신호.
     """
+    # npm이 배포한 gitHead가 GitHub에 아예 존재하지 않으면, 이 저장소의 PR
+    # 사용 관행(governance_pr_baseline)과 무관하게 그 자체로 결정적 위반
+    # 신호다. PR 없이 직접 push하는 저장소도 "존재하는 커밋"을 배포하는 것과,
+    # "가리키는 커밋 자체가 없는" 배포는 전혀 다른 위험 수준이므로 baseline
+    # 게이트보다 먼저 판단한다.
+    if evidence.get("commit_exists") is False:
+        return _result(
+            DetailedRuleName.ORPHAN_RELEASE,
+            [Signal(
+                "commit_not_found",
+                100,
+                "저장소는 확인되지만, 이 릴리스의 gitHead가 GitHub에 존재하지 않거나"
+                " (gitHead 값이 있는데 커밋을 못 찾음) npm/Sigstore 어디에도 gitHead"
+                " 후보 자체가 없습니다 (dangling / missing commit).",
+            )],
+            "이 릴리스의 git 커밋을 GitHub에서 확인할 수 없습니다.",
+        )
     if evidence.get("has_linked_pr") is None or evidence.get("governance_pr_baseline") is None:
         return _unverifiable(DetailedRuleName.ORPHAN_RELEASE, "PR 거버넌스 기준선 또는 현재 PR 연결 정보가 없습니다.")
     if evidence.get("governance_pr_baseline") is False:
