@@ -17,8 +17,8 @@ import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from rootkeepers.interceptor.lineage import collect_release_lineage_report, evaluate_risk
-from rootkeepers.interceptor.cooldown import check_cooldown  
+from rootkeepers.interceptor.cooldown import check_cooldown, get_latest_version
+
 
 
 def _find_project_root(start_dir: Path) -> Path:
@@ -155,29 +155,27 @@ def check_package(package_spec: str) -> RiskResult:
 
     # 쿨다운 게이트: 신버전이 배포된 지 충분히 지났는지 먼저 확인.
     # 미경과면 아직 관찰 기간이므로 무거운 계보 수집을 건너뛰고 보류 처리한다.
-    if version is not None:
-        cd = check_cooldown(name, version)
-        print(f"  [cooldown] {cd.reason}")
-        if not cd.passed:
-            return RiskResult(
-                package_spec=package_spec,
-                verdict=Verdict.UNVERIFIABLE,
-                score=0,
-                reason=f"쿨다운 미경과 ({cd.remain_days:.1f}일 대기)",
-            )
-        
+    # 버전 미지정이면 최신 버전으로 resolve (쿨다운을 재려면 버전이 필요)
+    if version is None:
+        version = get_latest_version(name)
+        if version is None:
+            return RiskResult(package_spec, Verdict.UNVERIFIABLE, 0,
+                            "최신 버전 조회 실패")
+
+    # 쿨다운 게이트: 미경과면 무거운 계보 수집 스킵하고 보류
+    cd = check_cooldown(name, version)
+    print(f"  [cooldown] {cd.reason}")
+    if not cd.passed:
+        return RiskResult(package_spec, Verdict.UNVERIFIABLE, 0,
+                        f"쿨다운 미경과 ({cd.remain_days:.1f}일 대기)")
+
     try:
         report = collect_release_lineage_report(name, version)
         risk = evaluate_risk(report)
-    except Exception as exc:  # noqa: BLE001 - 상위에서 CollectorError로 통일
+    except Exception as exc:
         raise CollectorError(f"{package_spec} 검사 실패: {exc}") from exc
 
-    return RiskResult(
-        package_spec=package_spec,
-        verdict=Verdict(risk["verdict"]),
-        score=risk["score"],
-        reason=risk["reason"],
-    )
+    return RiskResult(package_spec, Verdict(risk["verdict"]), risk["score"], risk["reason"])
 
 
 def report(result: RiskResult) -> None:
