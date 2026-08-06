@@ -155,6 +155,26 @@ def collect_commit(repo, git_head):
 
 
 # ==========================================
+# repo의 전체 tag 목록을 한 번만 materialize
+# ==========================================
+def _fetch_all_tags(repo):
+    """Fetch every tag once so callers can reuse it instead of re-paginating.
+
+    ``collect_matching_tags``/``collect_release_baseline`` used to call
+    ``repo.get_tags()`` fresh for every git_head they checked (current head +
+    up to 5 baseline releases). For popular packages with hundreds of tags
+    (e.g. lodash has 400+), that meant re-walking the full paginated tag list
+    up to 6 times per install, which alone could take minutes. Fetching once
+    and reusing the in-memory list fixes that.
+    """
+    try:
+        return list(repo.get_tags())
+    except Exception as e:  # Exception handling
+        print("tag 조회 실패:", e)
+        return []
+
+
+# ==========================================
 # git_head를 가리키는 tag가 있는지 확인
 # ==========================================
 def collect_matching_tags(repo, git_head):
