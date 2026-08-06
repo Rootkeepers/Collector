@@ -177,26 +177,15 @@ def _fetch_all_tags(repo):
 # ==========================================
 # git_head를 가리키는 tag가 있는지 확인
 # ==========================================
-def collect_matching_tags(repo, git_head):
-    matched_tags = []
-
-    try:  # Collect matching tag information
-        tags = repo.get_tags()
-
-        # The package version being evaluated may be much older than the ten
-        # newest tags.  Stopping early turns a real tag into a false
-        # ``git_tag_flip`` signal for otherwise benign historical releases.
-        for tag in tags:
-            if tag.commit.sha == git_head:
-                matched_tags.append({
-                    "name": tag.name,          # Tag name
-                    "sha": tag.commit.sha      # Associated commit SHA
-                })
-
-    except Exception as e:  # Exception handling
-        print("tag 조회 실패:", e)
-
-    return matched_tags
+def collect_matching_tags(tags, git_head):
+    # The package version being evaluated may be much older than the ten
+    # newest tags.  Stopping early turns a real tag into a false
+    # ``git_tag_flip`` signal for otherwise benign historical releases.
+    return [
+        {"name": tag.name, "sha": tag.commit.sha}
+        for tag in tags
+        if tag.commit.sha == git_head
+    ]
 
 
 # ============================
@@ -274,13 +263,20 @@ def workflow_modified_before_release(repo, git_head, entry_point):
         return None
 
 
-def collect_release_baseline(repo, current_git_head, *, releases=None, limit=5):
+def collect_release_baseline(repo, current_git_head, *, releases=None, limit=5, tags=None):
     """Collect evidence for the previous distinct tagged releases.
 
     A release entry is retained even when one optional sub-query fails.  The
     engine can then distinguish no historical releases from a release that
     simply has no linked PR or workflow file.
+
+    ``tags`` should be the repo's full tag list, pre-fetched once by the
+    caller via ``_fetch_all_tags`` (fetching once and reusing it here avoids
+    re-walking hundreds of paginated tags per baseline release).
     """
+    if tags is None:
+        tags = _fetch_all_tags(repo)
+
     baseline = []
     seen_shas = {current_git_head}
     # npm supplies exact previous versions and their gitHeads. Prefer those
@@ -299,32 +295,28 @@ def collect_release_baseline(repo, current_git_head, *, releases=None, limit=5):
             "tag": None,
             "git_head": sha,
             "commit": commit,
-            "tags": collect_matching_tags(repo, sha),
+            "tags": collect_matching_tags(tags, sha),
             "workflow_entry_points": collect_workflow_entry_points(repo, sha),
         })
         if len(baseline) >= limit:
             return {"releases": baseline, "source": "npm_versions"}
     if requested:
         return {"releases": baseline, "source": "npm_versions"}
-    try:
-        tags = repo.get_tags()
-        for tag in tags:
-            sha = tag.commit.sha
-            if not sha or sha in seen_shas:
-                continue
-            seen_shas.add(sha)
-            commit = collect_commit(repo, sha)
-            baseline.append({
-                "tag": tag.name,
-                "git_head": sha,
-                "commit": commit,
-                "tags": [{"name": tag.name, "sha": sha}],
-                "workflow_entry_points": collect_workflow_entry_points(repo, sha),
-            })
-            if len(baseline) >= limit:
-                break
-    except Exception as e:
-        print("baseline tag 조회 실패:", e)
+    for tag in tags:
+        sha = tag.commit.sha
+        if not sha or sha in seen_shas:
+            continue
+        seen_shas.add(sha)
+        commit = collect_commit(repo, sha)
+        baseline.append({
+            "tag": tag.name,
+            "git_head": sha,
+            "commit": commit,
+            "tags": [{"name": tag.name, "sha": sha}],
+            "workflow_entry_points": collect_workflow_entry_points(repo, sha),
+        })
+        if len(baseline) >= limit:
+            break
     return {"releases": baseline, "source": "github_tags"}
 
 
@@ -336,10 +328,11 @@ def collect_github_evidence(owner_repo, git_head, *, baseline_releases=None, wor
 
     # Collect GitHub evidence
     rate_limit = collect_rate_limit(g)
+    tags = _fetch_all_tags(repo)
     commit_info = collect_commit(repo, git_head)
-    tag_info = collect_matching_tags(repo, git_head)
+    tag_info = collect_matching_tags(tags, git_head)
     workflow_info = collect_workflow(repo, git_head)
-    baseline = collect_release_baseline(repo, git_head, releases=baseline_releases)
+    baseline = collect_release_baseline(repo, git_head, releases=baseline_releases, tags=tags)
 
     # Return collected evidence
     return {
