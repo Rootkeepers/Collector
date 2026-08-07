@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rootkeepers-collector"
+version = "0.1.0"
+description = "npm install 인터셉트 기반 공급망 신뢰도 검사기 (Track A/B/C 계보 수집 + 규칙 엔진)"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=42.0.0",
+    "PyGithub>=2.9.1",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+safe-npm = "rootkeepers.interceptor.__main__:main"
+safe-npm-setup = "rootkeepers.interceptor.shim_installer:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
