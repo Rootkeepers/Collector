@@ -8,15 +8,25 @@ npm 레지스트리(Track A) → GitHub 저장소(Track B) → Sigstore/Rekor at
 
 - Python 3.10+
 - Node.js / npm
+- [pipx](https://pipx.pypa.io/) (`sudo apt install pipx` 또는 `brew install pipx`)
 - GitHub Personal Access Token (fine-grained, "Public Repositories (read-only)")
 
 ## 설치
 
+최신 Debian/Ubuntu는 시스템 Python에 `pip install`을 직접 하는 걸 막아놓는다
+(PEP 668, `externally-managed-environment` 에러). `pipx`는 패키지마다 격리된
+가상환경을 자동으로 만들어주면서도 커맨드는 평소처럼 PATH에서 바로 쓸 수 있게
+해주므로, 이 문제를 피하면서 안전하게 설치할 수 있는 방법이다.
+
+레포 루트(`pyproject.toml`이 있는 위치)에서:
+
 ```bash
-pip install -e .
+pipx install -e .
+pipx ensurepath
 ```
 
-`safe-npm`, `safe-npm-setup` 두 커맨드가 생긴다.
+`pipx ensurepath` 실행 후 새 터미널을 열면 `safe-npm`, `safe-npm-setup` 두
+커맨드가 PATH에서 바로 잡힌다.
 
 ## GitHub 토큰 설정
 
