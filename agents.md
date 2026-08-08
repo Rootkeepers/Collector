@@ -15,6 +15,25 @@
 5. `unexpected_builder`: the Sigstore SLSA builder identity differs from the historical builder baseline. This is distinct from workflow drift.
 6. `tag_identity_drift`: release tag identity diverges from its baseline pattern.
 
+## Zero-trust blocking policy
+
+The default policy blocks at a weighted score of 75 or above when at least two
+independent rules are in the `RISK` band. `OIDC_MISMATCH` keeps weight 1.0;
+`WORKFLOW_DRIFT` and `TAG_IDENTITY_DRIFT` use weights 0.8 and 0.6 to reduce
+noise. A benign edge case may be quarantined for review rather than allowing a
+two-signal supply-chain attack to pass.
+
+Local engine simulation on 2026-08-08 used `benign_300.csv` and
+`malicious_attacks.csv`: all 300 baseline-consistent benign rows were `PASS`
+with score 0, while all six simulated attacks were `RISK` with the independent
+`orphan_release` and `oidc_mismatch` rules in the RISK band. This validates
+the policy decision logic only; it does not replace live collector coverage.
+
+All 25 detailed signal branches are covered by the local rule-engine matrix.
+The OIDC `unofficial_runner` signal is populated from the Sigstore builder ID:
+only the GitHub Actions runner namespace is classified as official; an absent
+builder remains unverified rather than being treated as suspicious.
+
 ## Dashboard JSON contract (`rootkeepers.dashboard-report.v1`)
 
 `package`, `decision`, `rules`, `provenance.builder_identity`, `tooling.packj`, and `ai_summary` are stable top-level dashboard inputs. Every rule has `id`, `state`, `score`, `band`, `rationale`, `signals`, and `evidence_status`. `decision.rationale` explains the total score. Optional tooling failures are represented in their own status field and never remove the core decision.

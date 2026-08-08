@@ -90,20 +90,24 @@ class DetailedScoringPolicy:
 
     weights: Mapping[DetailedRuleName, float]
     corroboration_bonus: int = 10
-    block_threshold: int = 90
-    minimum_corroborating_rules: int = 3
-    minimum_risk_band_rules: int = 3
+    block_threshold: int = 75
+    minimum_corroborating_rules: int = 2
+    minimum_risk_band_rules: int = 2
 
 
 DEFAULT_DETAILED_POLICY: Final[DetailedScoringPolicy] = DetailedScoringPolicy(
     weights={
         DetailedRuleName.ORPHAN_RELEASE: 0.7,
         DetailedRuleName.UNREVIEWED: 0.6,
-        DetailedRuleName.WORKFLOW_DRIFT: 1.0,
+        DetailedRuleName.WORKFLOW_DRIFT: 0.8,
         DetailedRuleName.OIDC_MISMATCH: 1.0,
         DetailedRuleName.UNEXPECTED_BUILDER: 0.9,
-        DetailedRuleName.TAG_IDENTITY_DRIFT: 0.7,
-    }
+        DetailedRuleName.TAG_IDENTITY_DRIFT: 0.6,
+    },
+    corroboration_bonus=10,
+    block_threshold=75,
+    minimum_corroborating_rules=2,
+    minimum_risk_band_rules=2,
 )
 
 
@@ -274,6 +278,13 @@ def evidence_from_lineage(report: Mapping[str, Any]) -> dict[str, Any]:
             "oidc_workflow": oidc.get("subject_workflow"),
             "issuer": oidc.get("issuer"),
             "expected_issuers": ["https://token.actions.githubusercontent.com"],
+            # Builder identity is provenance evidence, not a replacement for
+            # the repository/workflow checks above.  Surface a non-standard
+            # GitHub Actions runner as its own low-weight OIDC signal while
+            # keeping an absent builder unverified rather than suspicious.
+            "official_runner": _is_official_github_actions_runner(
+                predicate.get("builder_id")
+            ),
         },
         "unexpected_builder": {
             "baseline_attestations": npm_baseline.get("attestations_present"),
@@ -801,6 +812,19 @@ def _attestation_present(artifact: Mapping[str, Any]) -> bool | None:
     if value == "ABSENT":
         return False
     return None
+
+
+def _is_official_github_actions_runner(builder_id: Any) -> bool | None:
+    """Classify the known GitHub-hosted runner builder without guessing.
+
+    ``None`` means provenance did not provide a builder identity.  Any known
+    builder outside GitHub Actions' runner namespace is an explicit mismatch
+    for the OIDC rule and is separately explained in the report.
+    """
+    normalized = _normalize_builder(_string(builder_id))
+    if not normalized:
+        return None
+    return normalized.startswith("https://github.com/actions/runner/")
 
 
 def _first_nonempty_string(values: Sequence[Any] | Any) -> str:
