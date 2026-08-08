@@ -3,7 +3,7 @@
 ## Architecture and safety boundaries
 
 - `interceptor/lineage.py` collects npm (Track A), GitHub (Track B), and Sigstore (Track C) evidence. Its result is the source of truth for provenance.
-- `interceptor/detailed_rule_engine.py` produces the authoritative `PASS`, `RISK`, or `UNVERIFIABLE` decision. Optional analysis must never change this verdict or block an install.
+- `interceptor/detailed_rule_engine.py` produces the authoritative `PASS`, `RISK`, or `UNVERIFIABLE (RISK)` decision. Optional analysis must never change this verdict or block an install. The install gate is fail-closed: every non-`PASS` result is blocked.
 - Package source is only unpacked into a temporary directory and is never installed or executed by Collector. External analyzers receive that directory only.
 
 ## Detection rules
@@ -17,11 +17,12 @@
 
 ## Zero-trust blocking policy
 
-The default policy blocks at a weighted score of 75 or above when at least two
-independent rules are in the `RISK` band. `OIDC_MISMATCH` keeps weight 1.0;
-`WORKFLOW_DRIFT` and `TAG_IDENTITY_DRIFT` use weights 0.8 and 0.6 to reduce
-noise. A benign edge case may be quarantined for review rather than allowing a
-two-signal supply-chain attack to pass.
+The default policy is fail-closed: one `RISK`-band rule blocks installation, and
+one `UNVERIFIABLE` rule becomes `UNVERIFIABLE (RISK)` and also blocks
+installation. The weighted score threshold of 75 and the 2/2 corroboration
+settings remain dashboard-prioritization metadata; they do not override this
+gate. `OIDC_MISMATCH` keeps weight 1.0; `WORKFLOW_DRIFT` and
+`TAG_IDENTITY_DRIFT` use weights 0.8 and 0.6 to reduce reporting noise.
 
 Local engine simulation on 2026-08-08 used `benign_300.csv` and
 `malicious_attacks.csv`: all 300 baseline-consistent benign rows were `PASS`

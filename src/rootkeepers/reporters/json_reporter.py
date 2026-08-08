@@ -37,7 +37,7 @@ def build_dashboard_report(
             "version": package.get("version"),
         },
         "decision": {
-            "verdict": risk.get("verdict", "UNVERIFIABLE"),
+            "verdict": risk.get("verdict", "UNVERIFIABLE (RISK)"),
             "total_score": risk.get("score", 0),
             "block_threshold": risk.get("threshold"),
             "rationale": risk.get("reason", "판정 근거가 제공되지 않았습니다."),

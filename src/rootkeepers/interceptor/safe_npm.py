@@ -69,7 +69,7 @@ class Verdict(str, Enum):
 
     PASS = "PASS"
     RISK = "RISK"
-    UNVERIFIABLE = "UNVERIFIABLE"
+    UNVERIFIABLE = "UNVERIFIABLE (RISK)"
 
 
 @dataclass
@@ -78,7 +78,7 @@ class RiskResult:
 
     Attributes:
         package_spec: 검사 대상 패키지 명세 (예: "lodash", "react@18").
-        verdict: PASS / RISK / UNVERIFIABLE 중 하나.
+        verdict: PASS / RISK / UNVERIFIABLE (RISK) 중 하나.
         score: 0~100 트러스트 스코어.
         reason: 판정 근거 요약.
     """
@@ -215,13 +215,13 @@ def report(result: RiskResult) -> None:
     if result.verdict is Verdict.RISK:
         print(f"[BLOCKED] {result.package_spec} (score={result.score}) - {result.reason}")
     elif result.verdict is Verdict.UNVERIFIABLE:
-        print(f"[WARN] {result.package_spec} (score={result.score}) - 검증 불가: {result.reason}")
+        print(f"[BLOCKED] {result.package_spec} (score={result.score}) - UNVERIFIABLE (RISK): {result.reason}")
     else:
         print(f"[PASS] {result.package_spec} (score={result.score})")
 
 
 def gate_install(targets: list[str]) -> bool:
-    """install 대상 패키지들을 전부 검사하고, 하나라도 RISK면 차단한다.
+    """install 대상 패키지들을 전부 검사하고, PASS가 아니면 차단한다.
 
     Args:
         targets: 검사할 패키지 명세 목록.
@@ -239,7 +239,7 @@ def gate_install(targets: list[str]) -> bool:
             continue
 
         report(result)
-        if result.verdict is Verdict.RISK:
+        if result.verdict is not Verdict.PASS:
             blocked = True
 
     return not blocked

@@ -154,7 +154,7 @@ def collect_release_lineage_report(
 
 
 def evaluate_risk(report: dict[str, Any]) -> dict[str, Any]:
-    """계보 리포트를 6개 상세 규칙과 완화된 차단 정책으로 평가한다.
+    """계보 리포트를 6개 상세 규칙과 fail-closed 정책으로 평가한다.
 
     Args:
         report: ``collect_release_lineage_report``의 반환값.

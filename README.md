@@ -2,7 +2,7 @@
 
 npm install을 가로채서, 설치 대상 패키지가 실제로 어디서(GitHub) 어떻게(GitHub Actions/Sigstore) 빌드·배포됐는지 계보를 추적하고 신뢰도를 판정하는 공급망 보안 도구.
 
-npm 레지스트리(Track A) → GitHub 저장소(Track B) → Sigstore/Rekor attestation(Track C) 세 갈래 증거를 모아 하나의 릴리스 계보 리포트로 합치고, 규칙 엔진으로 `PASS`/`RISK`/`UNVERIFIABLE`을 판정한다.
+npm 레지스트리(Track A) → GitHub 저장소(Track B) → Sigstore/Rekor attestation(Track C) 세 갈래 증거를 모아 하나의 릴리스 계보 리포트로 합치고, 규칙 엔진으로 `PASS`/`RISK`/`UNVERIFIABLE (RISK)`을 판정한다.
 
 ## 요구 사항
 
@@ -72,11 +72,11 @@ safe-npm install <패키지명>
 |---|---|---|
 | `PASS` | 계보 검증 통과 | 진행 |
 | `RISK` | 규칙 위반 탐지 (예: OIDC mismatch) | **차단** |
-| `UNVERIFIABLE` | 쿨다운 미경과(배포 7일 이내) 또는 계보 수집 불가 | 경고만 출력, **진행** (의도된 정책) |
+| `UNVERIFIABLE (RISK)` | 쿨다운 미경과(배포 7일 이내), 계보 수집 불가, 또는 6개 규칙 중 증거 불충분 | **차단** 후 수동 검토 |
 
 패키지 배포 후 7일간은 계보 수집을 건너뛰고 관찰 기간으로 처리한다 (`COOLDOWN_DAYS`, [cooldown.py](src/rootkeepers/interceptor/cooldown.py)).
 
-`UNVERIFIABLE`을 차단하지 않는 건 의도된 설계다. 규칙 엔진은 위험 신호 하나만으로 차단하지 않고 여러 규칙이 동시에 RISK 밴드에 걸려야만 차단하도록 만들어져 있다 (`detailed_rule_engine.py`의 `minimum_corroborating_rules`/`minimum_risk_band_rules`). "증거가 없다"를 "위험하다"와 같은 강도로 차단하면 이 원칙에 어긋나고, 특히 쿨다운은 모든 패키지의 모든 신규 버전을 배포 후 7일간 설치 불가능하게 만들어버려 실사용성을 크게 해친다.
+기본 정책은 fail-closed다. 6개 규칙 중 하나라도 `RISK` 밴드이면 차단하며, 하나라도 검증할 수 없으면 `UNVERIFIABLE (RISK)`로 표시해 설치를 보류한다. 따라서 새 배포본은 쿨다운 기간 동안, 그리고 필요한 provenance·기준선이 없는 패키지는 사람이 근거를 확인할 때까지 설치할 수 없다. 가중 점수의 75/2/2 값은 대시보드 위험도 비교를 위한 기준으로 유지된다.
 
 ## 프로젝트 구조
 
