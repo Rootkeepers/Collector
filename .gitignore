@@ -99,6 +99,8 @@ schema_result.json
 release_lineage_report.json
 test_bundle.json
 *.log
+benchmark-packages.txt
+benchmark-results*.jsonl
 
 # Editor / OS files
 .vscode/
