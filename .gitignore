@@ -101,6 +101,12 @@ test_bundle.json
 *.log
 benchmark-packages.txt
 benchmark-results*.jsonl
+benign_300.csv
+benchmarks/
+scripts/benchmark_scan.py
+tests/
+.github/workflows/ci.yml
+.github/workflows/reusable-python-tests.yml
 
 # Editor / OS files
 .vscode/

@@ -14,17 +14,9 @@ dependencies = [
     "requests>=2.31.0",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
-
 [project.scripts]
 safe-npm = "rootkeepers.interceptor.__main__:main"
 safe-npm-setup = "rootkeepers.interceptor.shim_installer:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
-markers = ["live_malware: isolated opt-in scan of a real malicious package"]

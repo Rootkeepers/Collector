@@ -23,11 +23,3 @@
 
 - packJ is enabled only when `ROOTKEEPERS_ENABLE_PACKJ=1`; its npm tarball download/extraction and analyzer adapter live in `collectors/npm/`. Configure its executable with `ROOTKEEPERS_PACKJ_COMMAND`. It analyzes a safely extracted tarball and must emit JSON on stdout.
 - Ollama summarization is opt-in with `ROOTKEEPERS_ENABLE_OLLAMA=1` and lives in `reporters/ollama_summary.py`. `ROOTKEEPERS_OLLAMA_URL`, `ROOTKEEPERS_OLLAMA_MODEL`, and `ROOTKEEPERS_OLLAMA_TIMEOUT_SECONDS` control it. Failure or timeout yields `ai_summary.status=UNAVAILABLE`.
-
-## Performance baseline
-
-`scripts/benchmark_scan.py` records per-package Track A/B/C, rule evaluation, packJ, and optional AI timings as JSONL. On 2026-08-08, the benign control `lodash@4.17.21` completed in **47,289.74 ms** (lineage: 47,289.26 ms; rules: 0.41 ms; packJ disabled: 0.01 ms; Ollama disabled: 0 ms). npm and GitHub succeeded; Sigstore returned `ERROR`. This single cold-network sample is a diagnostic baseline, not a release threshold. At this rate, 300 serial packages would take roughly 3.94 hours before retries and optional tools; investigate network/Track C latency before setting a target.
-
-## Validation
-
-- Default CI runs only deterministic unit tests. `tests/test_live_malicious_packages.py` fetches the pinned `ua-parser-js@0.7.29` archive and runs static packJ analysis only when both `ROOTKEEPERS_RUN_LIVE_MALWARE_TESTS=1` and `ROOTKEEPERS_ENABLE_PACKJ=1` are set in an isolated environment. It must never run lifecycle scripts.
