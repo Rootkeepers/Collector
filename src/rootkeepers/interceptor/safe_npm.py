@@ -11,14 +11,16 @@ publish 등)는 전부 그대로 npm에 통과시킨다 (npq-hero와 동일한 �
     $ safe-npm run build          # 검사 없이 그대로 npm run build 실행
 """
 
+import os
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from rootkeepers.interceptor.lineage import collect_release_lineage_report, evaluate_risk
-from rootkeepers.interceptor.cooldown import check_cooldown  
+from typing import Any
+from rootkeepers.interceptor.cooldown import check_cooldown, get_latest_version
+
 
 
 def _find_project_root(start_dir: Path) -> Path:
@@ -53,6 +55,9 @@ except ImportError:  # pragma: no cover - dotenv is a soft dependency here
     pass
 
 from rootkeepers.interceptor.lineage import collect_release_lineage_report, evaluate_risk
+from rootkeepers.collectors.npm.npm_source import scan_npm_package
+from rootkeepers.reporters.ollama_summary import summarize_report
+from rootkeepers.reporters.json_reporter import build_dashboard_report, write_dashboard_report
 
 
 class CollectorError(Exception):
@@ -82,10 +87,16 @@ class RiskResult:
     verdict: Verdict
     score: int
     reason: str
+    dashboard_report: dict[str, Any] | None = None
 
 
 def find_real_npm() -> str:
     """alias/PATH 우회 없이 실제 npm 바이너리 경로를 찾는다.
+
+    `npm` 커맨드 자체가 이 인터셉터로 shim 처리된 경우, shim 스크립트가
+    자기 자신을 제외한 PATH에서 미리 찾은 진짜 npm 경로를
+    ``ROOTKEEPERS_REAL_NPM`` 환경변수로 넘겨준다. 그 값이 있으면 우선
+    사용해 shim이 자기 자신을 다시 호출하는 무한 재귀를 방지한다.
 
     Returns:
         진짜 npm 실행 파일의 절대 경로.
@@ -93,6 +104,10 @@ def find_real_npm() -> str:
     Raises:
         CollectorError: npm을 PATH 상에서 찾지 못한 경우.
     """
+    env_path = os.environ.get("ROOTKEEPERS_REAL_NPM")
+    if env_path:
+        return env_path
+
     npm_path = shutil.which("npm")
     if npm_path is None:
         raise CollectorError("PATH에서 npm 바이너리를 찾을 수 없습니다.")
@@ -155,29 +170,44 @@ def check_package(package_spec: str) -> RiskResult:
 
     # 쿨다운 게이트: 신버전이 배포된 지 충분히 지났는지 먼저 확인.
     # 미경과면 아직 관찰 기간이므로 무거운 계보 수집을 건너뛰고 보류 처리한다.
-    if version is not None:
-        cd = check_cooldown(name, version)
-        print(f"  [cooldown] {cd.reason}")
-        if not cd.passed:
-            return RiskResult(
-                package_spec=package_spec,
-                verdict=Verdict.UNVERIFIABLE,
-                score=0,
-                reason=f"쿨다운 미경과 ({cd.remain_days:.1f}일 대기)",
-            )
-        
+    # 버전 미지정이면 최신 버전으로 resolve (쿨다운을 재려면 버전이 필요)
+    if version is None:
+        version = get_latest_version(name)
+        if version is None:
+            return RiskResult(package_spec, Verdict.UNVERIFIABLE, 0,
+                            "최신 버전 조회 실패")
+
+    # 쿨다운 게이트: 미경과면 무거운 계보 수집 스킵하고 보류
+    cd = check_cooldown(name, version)
+    print(f"  [cooldown] {cd.reason}")
+    if not cd.passed:
+        return RiskResult(package_spec, Verdict.UNVERIFIABLE, 0,
+                        f"쿨다운 미경과 ({cd.remain_days:.1f}일 대기)")
+
     try:
         report = collect_release_lineage_report(name, version)
         risk = evaluate_risk(report)
-    except Exception as exc:  # noqa: BLE001 - 상위에서 CollectorError로 통일
+    except Exception as exc:
         raise CollectorError(f"{package_spec} 검사 실패: {exc}") from exc
 
-    return RiskResult(
-        package_spec=package_spec,
-        verdict=Verdict(risk["verdict"]),
-        score=risk["score"],
-        reason=risk["reason"],
-    )
+    packj = scan_npm_package(name, version)
+    dashboard = build_dashboard_report(report, risk, packj=packj)
+    ai_summary = summarize_report(dashboard)
+    dashboard = build_dashboard_report(report, risk, packj=packj, ai_summary=ai_summary)
+    _write_optional_dashboard_report(package_spec, dashboard)
+    return RiskResult(package_spec, Verdict(risk["verdict"]), risk["score"], risk["reason"], dashboard)
+
+
+def _write_optional_dashboard_report(package_spec: str, dashboard: dict[str, Any]) -> None:
+    """Persist an integration report only when an operator configured a directory."""
+    report_dir = os.environ.get("ROOTKEEPERS_JSON_REPORT_DIR")
+    if not report_dir:
+        return
+    safe_name = package_spec.replace("/", "_").replace("@", "_")
+    try:
+        write_dashboard_report(dashboard, Path(report_dir) / f"{safe_name}.json")
+    except OSError as error:
+        print(f"[WARN] dashboard JSON 저장 실패: {error}")
 
 
 def report(result: RiskResult) -> None:
