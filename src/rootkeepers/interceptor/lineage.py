@@ -8,11 +8,15 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+<<<<<<< HEAD
 from rootkeepers.collectors.npm._main_ import collect_npm_release
 from rootkeepers.interceptor.detailed_rule_engine import (
     evaluate_detailed_evidence,
     evidence_from_lineage,
 )
+=======
+from rootkeepers.collectors.npm.__main__ import collect_npm_release
+>>>>>>> 3b95edf (feat: Dashboard)
 
 
 SCHEMA_VERSION = "rootkeepers.release-lineage.v1"
@@ -51,6 +55,7 @@ def collect_release_lineage_report(
     # "bare install" 케이스에서 Sigstore 요청 URL에 "None"이 그대로 박힌다.
     resolved_version = _resolved_version_from_npm(npm_result, fallback=version)
 
+<<<<<<< HEAD
     track_results = {"npm": npm_result}
     github_git_head = npm_git_head
     github_owner_repo = npm_owner_repo
@@ -116,6 +121,52 @@ def collect_release_lineage_report(
 
     github_baseline = _mapping_from_track(track_results.get("github", {}), "baseline")
     return {
+=======
+    track_results = {"npm": npm_result}
+    github_git_head = npm_git_head
+    github_owner_repo = npm_owner_repo
+    commit_source = "npm.artifact.gitHead" if npm_git_head else None
+    repository_source = "npm.artifact.repository" if npm_owner_repo else None
+
+    if npm_git_head:
+        # The normal path has all of Track B's inputs.  Keep GitHub and
+        # Sigstore concurrent to avoid adding latency to ordinary packages.
+        downstream_tracks: dict[str, Callable[[], dict[str, Any]]] = {
+            "github": lambda: _collect_github(github_owner_repo, github_git_head),
+            "sigstore": lambda: _collect_sigstore(
+                package_name, resolved_version, sigstore_timeout
+            ),
+        }
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {
+                executor.submit(_run_track, name, collector): name
+                for name, collector in downstream_tracks.items()
+            }
+            for future in as_completed(futures):
+                track_results[futures[future]] = future.result()
+    else:
+        # npm's dist.gitHead is optional and is frequently absent for
+        # monorepo/automated releases.  In that case Track C's signed SLSA
+        # provenance is the stronger source of the build commit.  Track B
+        # must wait for it instead of being skipped in parallel.
+        sigstore_result = _run_track(
+            "sigstore",
+            lambda: _collect_sigstore(package_name, resolved_version, sigstore_timeout),
+        )
+        track_results["sigstore"] = sigstore_result
+        slsa_repository, slsa_commit = _slsa_git_reference(sigstore_result)
+        if slsa_commit:
+            github_git_head = slsa_commit
+            commit_source = "sigstore.slsa_predicate.commit"
+        if slsa_repository:
+            github_owner_repo = normalize_github_repository(slsa_repository)
+            repository_source = "sigstore.slsa_predicate.repository"
+        track_results["github"] = _run_track(
+            "github", lambda: _collect_github(github_owner_repo, github_git_head)
+        )
+
+    return {
+>>>>>>> 3b95edf (feat: Dashboard)
         "schema_version": SCHEMA_VERSION,
         "generated_at": _utc_now(),
         "started_at": started_at,
@@ -234,8 +285,9 @@ def _collect_sigstore(
     version: str,
     timeout: int,
 ) -> dict[str, Any]:
-    from rootkeepers.collectors.sigstore._main_ import collect_release_lineage
+    from rootkeepers.collectors.sigstore.__main__ import collect_release_lineage
 
+<<<<<<< HEAD
     return collect_release_lineage(package_name, version, timeout=timeout)
 
 
@@ -305,6 +357,33 @@ def _enrich_npm_baseline(
     result = dict(baseline)
     result["releases"] = enriched
     return result
+=======
+    return collect_release_lineage(package_name, version, timeout=timeout)
+
+
+def _slsa_git_reference(sigstore_track: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Return repository and commit carried by a successful SLSA result.
+
+    The Sigstore collector normalizes the relevant predicate fields under
+    ``slsa_predicate``.  This helper intentionally treats malformed or failed
+    Track C results as missing evidence, so the GitHub track remains
+    ``SKIPPED`` rather than guessing a commit.
+    """
+    if sigstore_track.get("status") != "SUCCESS":
+        return None, None
+    data = sigstore_track.get("data")
+    if not isinstance(data, dict):
+        return None, None
+    predicate = data.get("slsa_predicate")
+    if not isinstance(predicate, dict):
+        return None, None
+    repository = predicate.get("repository")
+    commit = predicate.get("commit")
+    return (
+        repository if isinstance(repository, str) and repository else None,
+        commit if isinstance(commit, str) and commit else None,
+    )
+>>>>>>> 3b95edf (feat: Dashboard)
 
 
 def _run_track(name: str, collector: Callable[[], dict[str, Any]]) -> dict[str, Any]:

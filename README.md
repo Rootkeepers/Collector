@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Rootkeepers Collector
 
 npm install을 가로채서, 설치 대상 패키지가 실제로 어디서(GitHub) 어떻게(GitHub Actions/Sigstore) 빌드·배포됐는지 계보를 추적하고 신뢰도를 판정하는 공급망 보안 도구.
@@ -95,3 +96,107 @@ src/rootkeepers/
 ```
 
 각 collector 하위 폴더의 `README.md`에는 해당 모듈의 상세 개발 기록이 있다.
+=======
+# TrustGate — npm 공급망 계보 검증 도구
+
+npm 패키지를 설치하기 **전에** 그 릴리스가 어디서 어떻게 만들어졌는지(계보)를
+npm·GitHub·Sigstore 세 곳에서 수집하고, 6개 공급망 규칙으로 채점해 위험하면
+설치를 막는다.
+
+`event-stream`(2018), `ua-parser-js`(2021) 같은 사고는 전부 평소와 똑같은
+`npm install` 한 번으로 성립했다. 그래서 이 도구는 "무엇이 나쁜가"가 아니라
+**"평소와 무엇이 달라졌는가"** 를 본다.
+
+```bash
+docker compose up -d --build
+```
+→ http://localhost:8000 · 자세한 사용법은 **[src/rootkeepers/dashboard/README.md](src/rootkeepers/dashboard/README.md)**
+
+---
+
+## 구조
+
+```
+Collector/
+├── compose.yaml · Dockerfile · .env.example    배포 (서비스 하나)
+├── examples/demo-project/                      검사 대상 예제 (기본값)
+├── requirements.txt · README.md
+│
+└── src/rootkeepers/                            ── 파이썬 패키지 전부
+    ├── paths.py              저장소 경로 · `.env` 로딩 (세 패키지가 모두 씀)
+    │
+    ├── collectors/           ── 계보 수집 (Track A/B/C)
+    │   ├── npm/                  Track A: 레지스트리 메타데이터, gitHead, 배포자
+    │   ├── github/               Track B: 커밋·태그·워크플로 증거
+    │   └── sigstore/             Track C: Rekor 투명성 로그, SLSA provenance
+    │
+    ├── interceptor/          ── 판정 · 설치 게이트 · 터미널 CLI
+    │   ├── scanning.py           스캔 진입점 — CLI와 대시보드가 함께 쓴다
+    │   ├── detailed_rule_engine.py  6규칙 채점 엔진
+    │   ├── baseline.py           과거 릴리스 수집 — "평소"의 기준선
+    │   ├── lineage.py            세 트랙을 하나의 계보로 통합
+    │   ├── cooldown.py           신버전 관찰 기간(7일) 게이트
+    │   ├── safe_npm.py           검사 후 진짜 npm에 위임
+    │   ├── reporting.py          CLI → 대시보드 fire-and-forget 전송
+    │   ├── inventory.py          설치된 패키지 목록 읽기 (네트워크 없음)
+    │   └── __main__.py           CLI 진입점
+    │
+    └── dashboard/            ── 웹 대시보드 (포트 8000)
+        ├── server.py             HTTP API + 정적 서빙
+        ├── store.py              이력 SQLite (대시보드 전용)
+        ├── __main__.py           `python -m rootkeepers.dashboard`
+        ├── README.md             화면·환경변수·기준선 설명
+        └── static/               브라우저로 나가는 것만
+            ├── console.html · app.css · app.js
+            └── fonts/            Inter · JetBrains Mono
+```
+
+---
+
+## 두 가지 사용 방식
+
+| | 방법 | 특징 |
+|---|---|---|
+| **웹 대시보드** | `docker compose up -d` → localhost:8000 | 스캔·판정 근거 열람·설치·이력을 화면에서 |
+| **터미널 CLI** | `python -m rootkeepers.interceptor install <pkg>` | 설치 전 검사 후 통과 시 실제 npm에 위임 |
+
+둘은 **같은 판정 엔진**([scanning.py](src/rootkeepers/interceptor/scanning.py))을 쓴다. 같은 패키지에 대해
+터미널과 대시보드의 결과가 갈리지 않는다.
+
+---
+
+## 6개 판정 규칙
+
+| 규칙 | 무엇을 보는가 |
+|---|---|
+| `orphan_release` | 릴리스의 `gitHead`가 GitHub에 실제로 존재하는가 |
+| `unreviewed` | 리뷰 없이 들어간 변경인가 |
+| `workflow_drift` | 빌드 워크플로 경로가 과거와 달라졌는가 |
+| `oidc_mismatch` | 서명 신원(OIDC)이 과거 릴리스와 다른가 |
+| `unexpected_builder` | 평소와 다른 사람/시스템이 배포했는가 |
+| `tag_identity_drift` | 태그·배포자 조합이 과거 패턴에서 벗어났는가 |
+
+판정은 **PASS / WARN / RISK / UNVERIFIABLE** 네 밴드로 나온다.
+비교할 과거가 없으면 감점하지 않고 `UNVERIFIABLE`로 남긴다 —
+**모르는 것을 안전하다고 속이지 않기 위해서다.**
+
+---
+
+## 로컬 실행 (Docker 없이)
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env          # GITHUB_TOKEN 채우기
+export PYTHONPATH=src
+python -m rootkeepers.dashboard
+```
+
+`.env`의 `GITHUB_TOKEN`은 **절대 커밋되지 않는다**(`.gitignore` 처리).
+
+---
+
+## ⚠️ 보안
+
+콘솔은 **인증이 없고 패키지 설치를 실행할 수 있다.** 반드시 `127.0.0.1`에만
+노출할 것 (compose 기본값이 그렇게 되어 있다). 공개 네트워크에 열면 안 된다.
+>>>>>>> 3b95edf (feat: Dashboard)

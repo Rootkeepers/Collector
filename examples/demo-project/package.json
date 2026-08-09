@@ -1,0 +1,9 @@
+{
+  "name": "trustgate-demo-project",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TrustGate 의 Installed Packages 화면을 바로 확인해 보기 위한 예제. 실제 검사 대상은 .env 의 TRUSTGATE_PROJECT_DIR 로 바꾼다.",
+  "dependencies": {
+    "lodash": "^4.17.21"
+  }
+}

@@ -19,41 +19,13 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from rootkeepers.interceptor.cooldown import check_cooldown, get_latest_version
+from rootkeepers.paths import load_env
+from rootkeepers.interceptor.reporting import report_event
+from rootkeepers.interceptor.scanning import scan_package
 
-
-
-def _find_project_root(start_dir: Path) -> Path:
-    """`safe_npm.py`가 어느 위치로 옮겨져도 안전하게 레포 루트를 찾는다.
-
-    `requirements.txt`나 `.git`이 있는 폴더를 만날 때까지 상위 디렉토리를
-    거슬러 올라가며 찾는다. 그래서 이 파일이 나중에 또 다른 위치로 옮겨져도
-    이 부분을 다시 고칠 필요가 없다.
-
-    Args:
-        start_dir: 탐색을 시작할 디렉토리 (보통 이 파일이 있는 폴더).
-
-    Returns:
-        레포 루트로 판단되는 디렉토리. 표식을 못 찾으면 `start_dir` 그대로 반환.
-    """
-    for candidate in (start_dir, *start_dir.parents):
-        if (candidate / "requirements.txt").exists() or (candidate / ".git").exists():
-            return candidate
-    return start_dir
-
-
-PROJECT_ROOT = _find_project_root(Path(__file__).resolve().parent)
-SRC_ROOT = PROJECT_ROOT / "src"
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv(PROJECT_ROOT / ".env")
-except ImportError:  # pragma: no cover - dotenv is a soft dependency here
-    pass
-
-from rootkeepers.interceptor.lineage import collect_release_lineage_report, evaluate_risk
+# 이 모듈은 항상 패키지의 일부로 import된다(`python -m rootkeepers.interceptor`
+# 또는 콘솔이 import). src/ 를 경로에 넣는 일은 그 진입점이 이미 끝냈다.
+load_env()
 
 
 class CollectorError(Exception):
@@ -77,16 +49,24 @@ class RiskResult:
         verdict: PASS / RISK / UNVERIFIABLE 중 하나.
         score: 0~100 트러스트 스코어.
         reason: 판정 근거 요약.
+        scan: scan_package()의 전체 결과. 이력 전송에 재사용한다.
+            쿨다운 미경과 등으로 계보 수집을 건너뛴 경우 None이다.
     """
 
     package_spec: str
     verdict: Verdict
     score: int
     reason: str
+    scan: dict | None = None
 
 
 def find_real_npm() -> str:
-    """alias/PATH 우회 없이 실제 npm 바이너리 경로를 찾는다.
+    """진짜 npm 실행 파일을 찾는다.
+
+    PATH에 `npm`이라는 이름의 래퍼를 끼워 넣어 쓰는 경우, 단순한
+    ``shutil.which("npm")``은 **그 래퍼 자신**을 찾아내 무한 재귀에 빠진다.
+    ``TRUSTGATE_SHIM_DIR``에 래퍼가 있는 디렉터리를 지정하면 탐색에서 제외한다
+    (지정하지 않으면 PATH 순서대로 그냥 찾는다).
 
     `npm` 커맨드 자체가 이 인터셉터로 shim 처리된 경우, shim 스크립트가
     자기 자신을 제외한 PATH에서 미리 찾은 진짜 npm 경로를
@@ -99,6 +79,7 @@ def find_real_npm() -> str:
     Raises:
         CollectorError: npm을 PATH 상에서 찾지 못한 경우.
     """
+<<<<<<< HEAD
     env_path = os.environ.get("ROOTKEEPERS_REAL_NPM")
     if env_path:
         return env_path
@@ -107,6 +88,31 @@ def find_real_npm() -> str:
     if npm_path is None:
         raise CollectorError("PATH에서 npm 바이너리를 찾을 수 없습니다.")
     return npm_path
+=======
+    excluded = set()
+    wrapper_dir = os.getenv("TRUSTGATE_SHIM_DIR", "").strip()
+    if wrapper_dir:
+        try:
+            excluded.add(Path(wrapper_dir).resolve())
+        except OSError:
+            pass
+
+    for entry in os.getenv("PATH", "").split(os.pathsep):
+        entry = entry.strip('"')
+        if not entry:
+            continue
+        try:
+            candidate_dir = Path(entry).resolve()
+        except OSError:
+            continue
+        if candidate_dir in excluded:
+            continue
+        found = shutil.which("npm", path=str(candidate_dir))
+        if found:
+            return found
+
+    raise CollectorError("PATH에서 npm 바이너리를 찾을 수 없습니다.")
+>>>>>>> 3b95edf (feat: Dashboard)
 
 
 def parse_install_targets(args: list[str]) -> list[str]:
@@ -148,9 +154,13 @@ def _split_package_spec(package_spec: str) -> tuple[str, str | None]:
 def check_package(package_spec: str) -> RiskResult:
     """단일 패키지에 대해 위험 판정을 수행한다.
 
-    Track A(npm)/B(GitHub)/C(Sigstore) 수집기를 실제로 호출해 계보를
-    수집하고, 임시 evaluate_risk()로 판정한다. evaluate_risk()는 정식
-    규칙 엔진(5.1~5.6)이 완성되기 전까지의 잠정 로직이다.
+    Track A(npm)/B(GitHub)/C(Sigstore) 수집기를 실제로 호출해 계보를 수집하고,
+    정식 6규칙 엔진(detailed_rule_engine)으로 판정한다 — 웹 콘솔과 완전히
+    동일한 ``rootkeepers.interceptor.scanning.scan_package()``를 쓰므로, 같은 패키지에
+    대해 터미널과 대시보드의 판정이 갈리지 않는다.
+
+    판정 결과는 콘솔로 fire-and-forget 전송된다
+    (``TRUSTGATE_CONSOLE_URL``이 가리키는 콘솔로, 실패해도 설치 흐름 무관).
 
     Args:
         package_spec: 검사할 패키지 명세 (예: "lodash", "react@18").
@@ -176,16 +186,25 @@ def check_package(package_spec: str) -> RiskResult:
     cd = check_cooldown(name, version)
     print(f"  [cooldown] {cd.reason}")
     if not cd.passed:
-        return RiskResult(package_spec, Verdict.UNVERIFIABLE, 0,
-                        f"쿨다운 미경과 ({cd.remain_days:.1f}일 대기)")
+        reason = f"쿨다운 미경과 ({cd.remain_days:.1f}일 대기)"
+        # 계보 수집을 건너뛰더라도 "쿨다운 때문에 설치가 보류됐다"는 사실 자체는
+        # 이력에 남겨야 한다 — 안 그러면 History에서 이 시도가 통째로 보이지 않는다.
+        report_event("cooldown_hold", {
+            "package": {"name": name, "version": version},
+            "verdict": Verdict.UNVERIFIABLE.value,
+            "score": 0,
+            "reason": reason,
+            "rules": [],
+        }, {"remain_days": round(cd.remain_days, 2) if cd.remain_days is not None else None})
+        return RiskResult(package_spec, Verdict.UNVERIFIABLE, 0, reason)
 
     try:
-        report = collect_release_lineage_report(name, version)
-        risk = evaluate_risk(report)
+        scan = scan_package(name, version)
     except Exception as exc:
         raise CollectorError(f"{package_spec} 검사 실패: {exc}") from exc
 
-    return RiskResult(package_spec, Verdict(risk["verdict"]), risk["score"], risk["reason"])
+    report_event("scan", scan)
+    return RiskResult(package_spec, Verdict(scan["verdict"]), scan["score"], scan["reason"], scan)
 
 
 def report(result: RiskResult) -> None:
@@ -198,16 +217,18 @@ def report(result: RiskResult) -> None:
         print(f"[PASS] {result.package_spec} (score={result.score})")
 
 
-def gate_install(targets: list[str]) -> bool:
+def gate_install(targets: list[str]) -> tuple[bool, list[RiskResult]]:
     """install 대상 패키지들을 전부 검사하고, 하나라도 RISK면 차단한다.
 
     Args:
         targets: 검사할 패키지 명세 목록.
 
     Returns:
-        True면 설치 진행 가능, False면 차단.
+        (설치 진행 가능 여부, 검사 결과 목록). 결과 목록은 호출자가 설치
+        성공 후 "install" 이벤트를 보낼 때 재사용한다.
     """
     blocked = False
+    results: list[RiskResult] = []
     for pkg_spec in targets:
         try:
             result = check_package(pkg_spec)
@@ -216,11 +237,14 @@ def gate_install(targets: list[str]) -> bool:
             blocked = True
             continue
 
+        results.append(result)
         report(result)
         if result.verdict is Verdict.RISK:
             blocked = True
+            if result.scan:
+                report_event("block", result.scan)
 
-    return not blocked
+    return (not blocked), results
 
 
 def run_real_npm(args: list[str]) -> int:

@@ -1,0 +1,23 @@
+# 이미지에 들어가면 안 되는 것만 제외한다.
+# src/ 는 콘솔이 실제로 실행하는 코드이므로 제외하지 않는다.
+
+# 비밀정보 — 절대 이미지에 들어가면 안 된다 (토큰은 런타임 env로 주입)
+.env
+.env.*
+!.env.example
+.trustgate/
+**/*.sqlite3
+
+.git/
+.gitignore
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 설치 산출물은 이미지에 넣지 않는다 (컨테이너에서 다시 설치되거나 마운트됨)
+node_modules/
+**/node_modules/
+
+*.log
