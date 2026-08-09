@@ -51,7 +51,6 @@ def collect_artifact_info(version_data: dict) -> dict:
     elif isinstance(repository_info, str):
         repo_url = repository_info
 
-<<<<<<< HEAD
     return {
         "integrity": integrity,
         "git_head": git_head,
@@ -115,19 +114,6 @@ def _repository_url(version_data: dict) -> str:
     if isinstance(repository, dict) and isinstance(repository.get("url"), str):
         return repository["url"].strip()
     return repository.strip() if isinstance(repository, str) else ""
-=======
-    # 배포자(_npmUser)는 tag_identity_drift 규칙이 "평소와 다른 사람이 배포했나"를
-    # 판단할 때 쓴다. 과거 기준선과 짝이 맞아야 하므로 여기서 함께 수집한다.
-    npm_user = version_data.get("_npmUser")
-    publisher = npm_user.get("name") if isinstance(npm_user, dict) else None
-
-    return {
-        "integrity": integrity,
-        "git_head": git_head,
-        "repo_url": repo_url,
-        "publisher": publisher
-    }
->>>>>>> 3b95edf (feat: Dashboard)
 
 
 def collect_attestation_status(version_data: dict) -> str:
@@ -140,7 +126,6 @@ def collect_attestation_status(version_data: dict) -> str:
     return "PRESENT" if has_attestation else "ABSENT"
 
 
-<<<<<<< HEAD
 def save_schema_mapping(
     package_name: str,
     latest_version: str,
@@ -150,16 +135,6 @@ def save_schema_mapping(
     baseline: dict | None = None,
     output_filename: str | None = "schema_result.json",
 ) -> dict:
-=======
-def save_schema_mapping(
-    package_name: str,
-    latest_version: str,
-    metadata: dict,
-    artifact: dict,
-    attestation_status: str,
-    output_filename: str | None = "schema_result.json",
-) -> dict:
->>>>>>> 3b95edf (feat: Dashboard)
     """
     [4] 공통 스키마 매핑 및 저장
     팀 공통 양식 구조에 맞게 데이터를 포장하고 JSON 파일로 저장합니다.
@@ -175,16 +150,10 @@ def save_schema_mapping(
             "integrity": artifact.get("integrity"),
             "git_head": artifact.get("git_head"),
             "repo_url": artifact.get("repo_url"),  # 추후 Track B 연동을 위해 저장
-<<<<<<< HEAD
             "attestation": attestation_status,
             "publisher": artifact.get("publisher", ""),
         },
         "baseline": baseline or {"publishers": [], "attestations_present": [], "releases": []},
-=======
-            "publisher": artifact.get("publisher"),  # tag_identity_drift 규칙이 사용
-            "attestation": attestation_status,
-        },
->>>>>>> 3b95edf (feat: Dashboard)
         "workflow": {},  # Track B(GitHub 수집기)에서 채울 칸
         "commit": {},    # Track B에서 채울 칸
         "result": {},    # 판정 로직 제외로 빈 칸 유지

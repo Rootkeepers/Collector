@@ -79,7 +79,6 @@ def find_real_npm() -> str:
     Raises:
         CollectorError: npm을 PATH 상에서 찾지 못한 경우.
     """
-<<<<<<< HEAD
     env_path = os.environ.get("ROOTKEEPERS_REAL_NPM")
     if env_path:
         return env_path
@@ -88,31 +87,6 @@ def find_real_npm() -> str:
     if npm_path is None:
         raise CollectorError("PATH에서 npm 바이너리를 찾을 수 없습니다.")
     return npm_path
-=======
-    excluded = set()
-    wrapper_dir = os.getenv("TRUSTGATE_SHIM_DIR", "").strip()
-    if wrapper_dir:
-        try:
-            excluded.add(Path(wrapper_dir).resolve())
-        except OSError:
-            pass
-
-    for entry in os.getenv("PATH", "").split(os.pathsep):
-        entry = entry.strip('"')
-        if not entry:
-            continue
-        try:
-            candidate_dir = Path(entry).resolve()
-        except OSError:
-            continue
-        if candidate_dir in excluded:
-            continue
-        found = shutil.which("npm", path=str(candidate_dir))
-        if found:
-            return found
-
-    raise CollectorError("PATH에서 npm 바이너리를 찾을 수 없습니다.")
->>>>>>> 3b95edf (feat: Dashboard)
 
 
 def parse_install_targets(args: list[str]) -> list[str]:
