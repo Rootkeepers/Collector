@@ -28,8 +28,19 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY src/ /app/src/
 
+# npm을 safe-npm으로 완전히 래핑
+# 1. 원본 npm을 npm.real로 저장
+# 2. /usr/bin/npm을 safe-npm 래퍼 스크립트로 교체
+RUN mv /usr/bin/npm /usr/bin/npm.real && \
+    printf '#!/bin/bash\nexec python -m rootkeepers.interceptor.safe_npm "$@"\n' > /usr/bin/npm && \
+    chmod +x /usr/bin/npm
+
+# safe-npm이 원본 npm을 찾도록 환경변수 설정
+ENV ROOTKEEPERS_REAL_NPM=/usr/bin/npm.real
+
 # 검사 대상 프로젝트를 마운트할 지점
-RUN mkdir -p /workspace
+RUN mkdir -p /workspace && \
+    echo '{"name":"workspace","version":"1.0.0","dependencies":{}}' > /workspace/package.json
 
 EXPOSE 8000
 

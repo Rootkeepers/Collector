@@ -18,9 +18,10 @@ services:
     container_name: trustgate-console
     restart: unless-stopped
     ports:
-      # 반드시 로컬에만 노출한다. 이 콘솔은 인증이 없고 패키지 설치를
-      # 실행할 수 있으므로 외부에 열면 안 된다.
-      - "127.0.0.1:8000:8000"
+      # 모든 인터페이스에 노출 (0.0.0.0). VM에서도 접근 가능.
+      # ⚠️ 이 콘솔은 인증이 없고 패키지 설치를 실행할 수 있으므로
+      #    신뢰된 네트워크에서만 노출하세요.
+      - "0.0.0.0:8000:8000"
     environment:
       TRUSTGATE_PROJECT_DIR: /workspace
       TRUSTGATE_DB_PATH: /data/history.sqlite3

@@ -17,7 +17,7 @@
     <button class="nav-item" data-view="explorer"><span class="ic">▤</span>Package Explorer</button>
     <button class="nav-item" data-view="installed"><span class="ic">⬇</span>Installed Packages</button>
     <button class="nav-item" data-view="history"><span class="ic">▧</span>History</button>
-    <div class="sidebar-foot">python webapp/server.py<br>github.com/Rootkeepers/Collector</div>
+    <div class="sidebar-foot">Rootkeepers</div>
   </nav>
 
   <div>
@@ -36,17 +36,12 @@
       <section class="view active" id="view-dashboard">
         <div class="view-head">
           <h1>Dashboard</h1>
-          <p>이번 세션에서 실행한 실제 스캔 기준 지표. 서버 재시작 시 초기화된다 (영구 저장소 없음).</p>
-        </div>
-        <div class="notice">
-          <span class="n-icon">!</span>
-          <div><b>baseline 이력 미구현.</b> 과거 릴리스 비교 기준선 수집 기능이 아직 없어 실제 스캔은 <span class="mono">orphan_release</span> 외 5개 규칙이 대부분 <span class="mono">UNVERIFIABLE</span>로 나온다. 버그가 아니라 수집기 로드맵상 다음 단계다.</div>
         </div>
         <div class="cards-row" id="overview-cards"></div>
         <div class="grid-2">
           <div class="panel">
             <h2>패키지 스캔</h2>
-            <p class="subhead">npm 패키지명 또는 <span class="mono">이름@버전</span> — 실제 npm·GitHub·Sigstore 호출, 수 초~10여 초 소요</p>
+            <p class="subhead">npm 패키지 스캔</p>
             <div class="scan-form">
               <input type="text" id="scan-input" class="mono" placeholder="예: left-pad, react@18.2.0, lodash">
               <button class="btn primary" id="scan-btn">스캔 실행</button>
@@ -64,7 +59,7 @@
 
       <!-- ================= Package Explorer ================= -->
       <section class="view" id="view-explorer">
-        <div class="view-head"><h1>Package Explorer</h1><p>이번 세션에서 실행한 실제 스캔 목록. 행을 클릭하면 바로 아래에 그 패키지의 개요·규칙·증거·리포트가 한 곳에서 펼쳐진다.</p></div>
+        <div class="view-head"><h1>Package Explorer</h1></div>
         <div class="panel">
           <div class="table-wrap">
             <table class="pkg-table">
@@ -79,14 +74,10 @@
 
       <!-- ================= Installed Packages ================= -->
       <section class="view" id="view-installed">
-        <div class="view-head"><h1>Installed Packages</h1><p>프로젝트의 package.json/package-lock.json을 실제로 읽어 설치된 버전과 최신 버전, 쿨다운 상태를 비교한다. 쿨다운이 아직 안 지났어도, 설치된 버전(기준선)과 신버전 후보가 둘 다 RISK가 아니면 조기 승인으로 지금 설치할 수 있다.</p></div>
-        <div class="notice">
-          <span class="n-icon">!</span>
-          <div><b>조기 승인 정책.</b> 쿨다운 중에는 무조건 허용하지 않는다 — <span class="mono">cooldown_gate.py</span>의 EARLY_APPROVE 분기와 동일하게, 기준선이 RISK면 전체 차단, 신버전이 RISK면 조기 승인 거부(쿨다운 유지), 둘 다 RISK가 아닐 때만 지금 설치를 허용한다.</div>
-        </div>
+        <div class="view-head"><h1>Installed Packages</h1></div>
         <div class="panel">
           <h2>프로젝트 경로</h2>
-          <p class="subhead">package.json이 있는 디렉터리 — 비워두면 서버 기본값(Collector의 src/)을 쓴다</p>
+          <p class="subhead">프로젝트 경로 지정</p>
           <div class="scan-form">
             <input type="text" id="installed-project" class="mono" placeholder="예: C:/Users/me/my-project">
             <button class="btn primary" id="installed-load-btn">불러오기</button>
@@ -105,17 +96,15 @@
 
       <!-- ================= History ================= -->
       <section class="view" id="view-history">
-        <div class="view-head"><h1>History</h1><p>이 콘솔에서 한 스캔과 터미널(<span class="mono">safe-npm</span>)에서 일어난 설치가 함께 쌓인다. 서버를 재시작해도 남는다.</p></div>
+        <div class="view-head"><h1>History</h1></div>
         <div class="cards-row" id="hist-cards"></div>
         <div class="panel">
           <h2>일자별 활동</h2>
-          <p class="subhead">최근 14일 — 스캔 / 차단 / 설치</p>
           <div id="hist-trend"></div>
           <div class="trend-legend" id="hist-trend-legend"></div>
         </div>
         <div class="panel">
           <h2>이벤트</h2>
-          <p class="subhead">행을 클릭하면 그때 어떤 규칙이 왜 그렇게 판단했는지 펼쳐진다</p>
           <div class="filters">
             <input type="text" id="h-q" placeholder="패키지 · 출처 검색…">
             <select id="h-event">
@@ -143,7 +132,7 @@
         </div>
       </section>
 
-      <footer class="page-foot">Rootkeepers · <a href="https://github.com/Rootkeepers/Collector" target="_blank" rel="noopener">github.com/Rootkeepers/Collector</a> 의 실제 수집기·규칙 엔진을 로컬에서 직접 호출하는 콘솔</footer>
+      <footer class="page-foot">TrustGate Scan Console</footer>
     </main>
   </div>
 </div>

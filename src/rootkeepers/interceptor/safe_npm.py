@@ -18,6 +18,16 @@ import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+
+# 재귀 호출 방지: 이미 safe-npm 내부면 직통 npm 호출
+if os.environ.get("ROOTKEEPERS_SAFE_NPM_RUNNING"):
+    import tempfile
+    npm_path = os.environ.get("ROOTKEEPERS_REAL_NPM")
+    if npm_path:
+        sys.exit(subprocess.run([npm_path, *sys.argv[1:]], check=False).returncode)
+
+os.environ["ROOTKEEPERS_SAFE_NPM_RUNNING"] = "1"
+
 from rootkeepers.interceptor.cooldown import check_cooldown, get_latest_version
 from rootkeepers.paths import load_env
 from rootkeepers.interceptor.reporting import report_event

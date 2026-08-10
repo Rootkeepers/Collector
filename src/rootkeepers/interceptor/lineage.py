@@ -94,6 +94,9 @@ def collect_release_lineage_report(
             "github", lambda: _collect_github(github_owner_repo, github_git_head)
         )
 
+    npm_baseline = _mapping_from_track(npm_result, "baseline")
+    github_baseline = _mapping_from_track(track_results.get("github"), "baseline")
+
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": _utc_now(),
