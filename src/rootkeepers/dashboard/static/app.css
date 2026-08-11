@@ -135,6 +135,9 @@ table.pkg-table tbody tr.active td { background: var(--accent-soft); }
 .pkg-name-cell { font-family: 'JBM', monospace; font-weight: 700; }
 .src-tag { font-family: 'JBM', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 4px; margin-left: 7px; }
 .src-tag.live { background: var(--good-soft); color: var(--good); }
+/* 이번 세션의 스캔이 아니라 이력(SQLite)에서 되살린 행 */
+.src-tag.stored { background: var(--panel-2, rgba(127,127,127,.14)); color: var(--muted, #8b93a7); }
+.muted { color: var(--muted, #8b93a7); }
 .verdict-pill {
   display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   font-family: 'JBM', monospace; font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;

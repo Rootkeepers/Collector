@@ -64,23 +64,44 @@ EOF
 chmod +x "$TMP/realbin/safe-npm"
 
 export COUNT_FILE="$TMP/calls.log"
-: > "$COUNT_FILE"
 
-# shim_new → shim_stale → realbin 순. 낡은 shim이 중간에 끼어 있는 게 핵심이다.
-PATH="$TMP/shim_new:$TMP/shim_stale:$TMP/realbin:$PATH" \
-    timeout 20 npm install lodash
-status=$?
+# shim이 PATH를 훑는 방식을 검증하므로, 진짜 npm의 **위치**를 바꿔가며 돌린다.
+# 특히 맨 끝은 과거에 실제로 깨졌던 자리다(마지막 항목 누락 버그).
+run_case() {
+    local label="$1" search_path="$2"
+    : > "$COUNT_FILE"
 
-[ "$status" -ne 124 ] || fail "20초 안에 끝나지 않았다 — 재귀에 빠졌다"
-[ "$status" -eq 0 ] || fail "shim이 0이 아닌 코드로 끝났다 (exit=$status)"
+    PATH="$search_path" timeout 20 npm install lodash
+    local status=$?
 
-safe_calls=$(grep -c '^SAFE_NPM' "$COUNT_FILE" || true)
-real_calls=$(grep -c '^REAL_NPM' "$COUNT_FILE" || true)
+    [ "$status" -ne 124 ] || fail "[$label] 20초 안에 끝나지 않았다 — 재귀에 빠졌다"
+    [ "$status" -eq 0 ] || fail "[$label] shim이 0이 아닌 코드로 끝났다 (exit=$status)"
 
-# 검사는 딱 한 번. npm이 자기를 다시 불러도 재검사하지 않는다.
-[ "$safe_calls" -eq 1 ] || fail "safe-npm이 ${safe_calls}번 불렸다 (기대: 1) — 중첩 검사 발생"
-# 최초 위임 1회 + 중첩 호출 1회가 그대로 진짜 npm에 도달해야 한다.
-[ "$real_calls" -eq 2 ] || fail "진짜 npm이 ${real_calls}번 불렸다 (기대: 2)"
+    local safe_calls real_calls
+    safe_calls=$(grep -c '^SAFE_NPM' "$COUNT_FILE" || true)
+    real_calls=$(grep -c '^REAL_NPM' "$COUNT_FILE" || true)
 
-echo "[PASS] shim이 낡은 shim을 건너뛰고, 중첩 npm 호출에도 재검사하지 않는다"
-echo "       safe-npm=${safe_calls}회, real npm=${real_calls}회"
+    # 검사는 딱 한 번. npm이 자기를 다시 불러도 재검사하지 않는다.
+    [ "$safe_calls" -eq 1 ] || fail "[$label] safe-npm이 ${safe_calls}번 불렸다 (기대: 1) — 중첩 검사 발생"
+    # 최초 위임 1회 + 중첩 호출 1회가 그대로 진짜 npm에 도달해야 한다.
+    [ "$real_calls" -eq 2 ] || fail "[$label] 진짜 npm이 ${real_calls}번 불렸다 (기대: 2)"
+
+    echo "[PASS] $label — safe-npm=${safe_calls}회, real npm=${real_calls}회"
+}
+
+# shim이 쓰는 외부 명령(grep/tr)만 있는 최소 경로. 여기에 npm이 있으면 안 된다.
+UTIL_PATH="$(dirname "$(command -v grep)"):$(dirname "$(command -v tr)")"
+command -v npm >/dev/null 2>&1 && [ -z "${ALLOW_SYSTEM_NPM:-}" ] && {
+    PATH="$UTIL_PATH" command -v npm >/dev/null 2>&1 &&
+        fail "최소 경로에 실제 npm이 있어 테스트가 오염된다"
+}
+
+# 낡은 shim이 중간에 끼어 있는 상황.
+run_case "진짜 npm이 PATH 중간" \
+    "$TMP/shim_new:$TMP/shim_stale:$TMP/realbin:$UTIL_PATH"
+
+# 진짜 npm이 PATH 맨 끝 — Fedora의 /usr/bin 처럼.
+run_case "진짜 npm이 PATH 맨 끝" \
+    "$TMP/shim_new:$TMP/shim_stale:$UTIL_PATH:$TMP/realbin"
+
+echo "[OK] 모든 경우에서 shim이 낡은 shim을 건너뛰고 재검사하지 않는다"

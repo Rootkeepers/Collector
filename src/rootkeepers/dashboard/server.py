@@ -190,6 +190,14 @@ def list_installed(project_dir: Path) -> dict:
         *pkg_json.get("devDependencies", {}).keys(),
     })
 
+    # 이력에 남은 마지막 판정을 함께 실어 보낸다 — 콘솔 스캔이든 터미널
+    # safe-npm이든, 이미 판정한 패키지를 다시 "미검사"로 보여주지 않도록.
+    try:
+        last_by_name = {e["package_name"]: e for e in store.latest_scans()}
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write(f"[store] 마지막 판정 조회 실패 (무시하고 진행): {exc}\n")
+        last_by_name = {}
+
     rows = []
     for name in names:
         installed_version = read_baseline(name, lockfile=str(lock_path)) if lock_path.exists() else None
@@ -204,12 +212,18 @@ def list_installed(project_dir: Path) -> dict:
                 "remain_days": round(cd.remain_days, 2) if cd.remain_days is not None else None,
                 "reason": cd.reason,
             }
+        last = last_by_name.get(name)
         rows.append({
             "name": name,
             "installed_version": installed_version,
             "latest_version": latest_version,
             "up_to_date": bool(latest_version) and installed_version == latest_version,
             "cooldown": cooldown,
+            "last_scan": None if last is None else {
+                "verdict": last["verdict"], "score": last["score"], "reason": last["reason"],
+                "version": last["package_version"], "source": last["source"],
+                "event": last["event"], "created_at": last["created_at"],
+            },
         })
     return {"ok": True, "project": str(project_dir), "packages": rows}
 
@@ -360,6 +374,18 @@ class Handler(BaseHTTPRequestHandler):
                 ),
                 "inventory": store.inventory_view((qs.get("pkg") or [""])[0].strip()),
             })
+            return
+
+        if parsed.path == "/api/scans":
+            qs = parse_qs(parsed.query)
+            try:
+                self._send_json(200, {
+                    "ok": True,
+                    "scans": store.latest_scans(_int_param(qs, "limit", 200, 1, 500)),
+                })
+            except Exception as exc:  # noqa: BLE001
+                traceback.print_exc()
+                self._send_json(200, {"ok": False, "error": f"{exc.__class__.__name__}: {exc}"})
             return
 
         if parsed.path == "/api/installed":

@@ -121,6 +121,39 @@
     };
   }
 
+  /* 이력(SQLite)에 남은 판정을 화면이 쓰는 모양으로 되살린다.
+   * DB에는 verdict/score/rules/track_statuses/timing만 저장돼 있어, 증거
+   * 원문과 파이프라인은 복원되지 않는다 — 해당 탭은 비어 보인다. */
+  function normalizeStored(ev) {
+    const rules = {};
+    (ev.rules || []).forEach(r => {
+      rules[r.id] = { score: r.score, band: r.band, reason: r.reason, signals: r.signals || [], evidence_limitations: r.evidence_limitations || [] };
+    });
+    return {
+      id: `db:${ev.id}`,
+      name: ev.package_name, version: ev.package_version, source: 'stored',
+      scenario: `${ev.source || 'console'} · ${ev.event} · ${new Date(ev.created_at).toLocaleString('ko-KR')}`,
+      rules,
+      decision: { score: ev.score ?? 0, verdict: ev.verdict, reason: ev.reason, corroboration: 0, activatedCount: 0, riskBandCount: 0 },
+      evidenceByRule: {}, trackStatuses: ev.track_statuses || {}, timing: ev.timing || null,
+      pipeline: [], publishedAt: null, cooldown: null,
+    };
+  }
+
+  async function loadStoredScans() {
+    try {
+      const res = await fetch('/api/scans');
+      const data = await res.json();
+      if (!data.ok) return;
+      // 같은 패키지를 이번 세션에 다시 스캔했다면 그 결과(LIVE)를 우선한다.
+      const liveNames = new Set(liveResults.map(p => p.name));
+      const stored = data.scans.filter(ev => !liveNames.has(ev.package_name)).map(normalizeStored);
+      if (!stored.length) return;
+      liveResults.push(...stored);
+      renderOverview(); renderExplorer(); renderCurrentView();
+    } catch { /* 이력이 없어도 화면은 그대로 동작한다 */ }
+  }
+
   scanBtn.addEventListener('click', () => runScan(scanInput.value));
   scanInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runScan(scanInput.value); });
   document.getElementById('quick-lodash').addEventListener('click', () => { scanInput.value = 'lodash'; runScan('lodash'); });
@@ -158,10 +191,15 @@
     const allowed = liveResults.filter(p => p.decision.verdict === 'PASS').length;
     const blocked = liveResults.filter(p => p.decision.verdict === 'RISK').length;
     const unverifiable = liveResults.filter(p => p.decision.verdict === 'UNVERIFIABLE').length;
-    const avgMs = total ? Math.round(liveResults.reduce((s, p) => s + p.timing.total, 0) / total) : 0;
-    const avgGithub = total ? Math.round(liveResults.reduce((s, p) => s + p.timing.github, 0) / total) : 0;
-    const totalHist = liveResults.slice(0, 12).map(p => p.timing.total).reverse();
-    const githubHist = liveResults.slice(0, 12).map(p => p.timing.github).reverse();
+    // 이력에서 되살린 행은 소요 시간이 없을 수 있다. 그대로 평균에 넣으면
+    // NaN이 되어 스파크라인 path가 깨지므로, 측정값이 있는 것만 집계한다.
+    const timed = liveResults.filter(p => p.timing && Number.isFinite(p.timing.total));
+    const avgOf = (key) => timed.length
+      ? Math.round(timed.reduce((s, p) => s + p.timing[key], 0) / timed.length) : 0;
+    const avgMs = avgOf('total');
+    const avgGithub = avgOf('github');
+    const totalHist = timed.slice(0, 12).map(p => p.timing.total).reverse();
+    const githubHist = timed.slice(0, 12).map(p => p.timing.github).reverse();
     const scoreHist = liveResults.slice(0, 12).map(p => p.decision.score).reverse();
 
     const cards = [
@@ -203,7 +241,7 @@
     empty.style.display = liveResults.length ? 'none' : 'block';
     tbody.innerHTML = rows.map(p => `
       <tr data-id="${p.id}" class="${selected && selected.id === p.id ? 'active' : ''}">
-        <td class="pkg-name-cell">${p.name}<span class="src-tag live">LIVE</span></td>
+        <td class="pkg-name-cell">${p.name}${p.source === 'stored' ? '<span class="src-tag stored">기록</span>' : '<span class="src-tag live">LIVE</span>'}</td>
         <td class="mono">${p.version || '—'}</td>
         <td class="mono">${p.publishedAt ? new Date(p.publishedAt).toLocaleDateString('ko-KR') : '—'}</td>
         <td class="mono">${p.decision.score}</td>
@@ -265,7 +303,7 @@
         <div class="pkg-header">
           <span class="title">${fmtSpec(p.name, p.version)}</span>
           <span style="display:flex; align-items:center; gap:10px;">
-            <span class="src-tag live">LIVE</span>
+            ${p.source === 'stored' ? '<span class="src-tag stored">기록</span>' : '<span class="src-tag live">LIVE</span>'}
             <span class="verdict-pill ${p.decision.verdict}">${p.decision.verdict} · ${p.decision.score}/100</span>
           </span>
         </div>
@@ -294,7 +332,7 @@
           <div style="font-size:12.5px; color:var(--ink-2); line-height:1.65; margin-top:12px;">${p.decision.reason}</div>
           ${p.trackStatuses ? `<div class="track-chips">${Object.entries(p.trackStatuses).map(([k,v]) => `<span class="track-chip ${v}">${k}: ${v}</span>`).join('')}</div>` : ''}
           ${p.cooldown ? `<div class="track-chips"><span class="cooldown-badge ${p.cooldown.passed ? 'passed' : 'holding'}">${p.cooldown.passed ? '쿨다운 통과' : `쿨다운 중 · ${p.cooldown.remain_days != null ? p.cooldown.remain_days.toFixed(1) : '?'}일 남음`}</span></div>` : ''}
-          ${p.timing ? `<div class="track-chips"><span class="track-chip">총 소요 ${p.timing.total}ms</span><span class="track-chip">npm ${p.timing.npm}ms</span><span class="track-chip">github ${p.timing.github}ms</span><span class="track-chip">sigstore ${p.timing.sigstore}ms</span></div>` : ''}
+          ${p.timing && Number.isFinite(p.timing.total) ? `<div class="track-chips"><span class="track-chip">총 소요 ${p.timing.total}ms</span><span class="track-chip">npm ${p.timing.npm}ms</span><span class="track-chip">github ${p.timing.github}ms</span><span class="track-chip">sigstore ${p.timing.sigstore}ms</span></div>` : ''}
         </div>
         <div class="gauge-wrap">${riskGaugeSvg(p.decision.score, p.decision.verdict)}<div><div class="verdict-pill ${p.decision.verdict}">${p.decision.verdict}</div><div class="gauge-label">차단 임계값 ${BLOCK_THRESHOLD}</div></div></div>
       </div>
@@ -621,7 +659,7 @@
     }).join('');
     const tracks = e.track_statuses
       ? `<div class="track-chips">${Object.entries(e.track_statuses).map(([k,v]) => `<span class="track-chip ${escapeHtml(v)}">${escapeHtml(k)}: ${escapeHtml(v)}</span>`).join('')}</div>` : '';
-    const timing = e.timing ? `<div class="track-chips"><span class="track-chip">총 ${e.timing.total}ms</span><span class="track-chip">npm ${e.timing.npm}ms</span><span class="track-chip">github ${e.timing.github}ms</span><span class="track-chip">sigstore ${e.timing.sigstore}ms</span></div>` : '';
+    const timing = e.timing && Number.isFinite(e.timing.total) ?`<div class="track-chips"><span class="track-chip">총 ${e.timing.total}ms</span><span class="track-chip">npm ${e.timing.npm}ms</span><span class="track-chip">github ${e.timing.github}ms</span><span class="track-chip">sigstore ${e.timing.sigstore}ms</span></div>` : '';
     return `<tr class="hist-detail"><td colspan="7"><div class="hist-detail-inner">
         <div class="hist-reason">${escapeHtml(e.reason || '')}</div>
         ${bars || '<div class="empty-hint">규칙 정보가 없다.</div>'}
@@ -669,6 +707,16 @@
     return `<button class="btn small" data-action="early_approve" data-name="${escapeHtml(row.name)}">조기 승인 확인</button>`;
   }
 
+  /* 이력에 남은 마지막 판정. 아직 한 번도 검사하지 않은 패키지와, 검사했지만
+   * 판정이 UNVERIFIABLE인 패키지는 다른 뜻이므로 구분해서 보여준다. */
+  function lastScanHtml(row) {
+    const s = row.last_scan;
+    if (!s) return '<span class="muted">미검사</span>';
+    const when = new Date(s.created_at).toLocaleString('ko-KR');
+    const title = `${s.version || ''} · ${s.source || ''} · ${when}${s.reason ? '\n' + s.reason : ''}`;
+    return `<span class="verdict-pill ${s.verdict}" title="${escapeHtml(title)}">${s.verdict} · ${s.score ?? 0}</span>`;
+  }
+
   function rowHtml(row) {
     const state = installedActionState[row.name] || { status: 'idle' };
     return `
@@ -676,6 +724,7 @@
         <td class="pkg-name-cell">${escapeHtml(row.name)}</td>
         <td class="mono">${row.installed_version || '—'}</td>
         <td class="mono">${row.latest_version || '—'}</td>
+        <td>${lastScanHtml(row)}</td>
         <td>${cooldownBadgeHtml(row)}</td>
         <td><div class="install-cell" id="install-cell-${safeId(row.name)}">${actionCellHtml(row, state)}</div></td>
       </tr>
@@ -779,4 +828,5 @@
    * Sample scenarios table
    * ========================================================= */
   renderOverview(); renderExplorer(); renderDashboardRecent(); renderCurrentView();
+  loadStoredScans();
 })();

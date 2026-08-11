@@ -31,7 +31,9 @@ while IFS= read -r rk_dir; do
     grep -qF "{SHIM_MARKER}" "$rk_cand" 2>/dev/null && continue
     REAL_NPM="$rk_cand"
     break
-done < <(printf '%s' "$PATH" | tr ':' '\\n')
+    # %s\\n: 마지막 항목에도 개행을 붙인다. 없으면 read가 non-zero를 반환해
+    # PATH의 **마지막 디렉터리가 통째로 누락**된다 (거기 npm이 있으면 못 찾는다).
+done < <(printf '%s\\n' "$PATH" | tr ':' '\\n')
 
 if [ -z "$REAL_NPM" ]; then
     echo "[ERROR] 실제 npm 바이너리를 찾을 수 없습니다." >&2

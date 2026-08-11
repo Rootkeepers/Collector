@@ -122,6 +122,19 @@ def save_inventory(project: str, project_key: str, packages: list) -> int:
     return len(rows)
 
 
+def _row_to_event(r: sqlite3.Row) -> dict:
+    return {
+        "id": r["id"], "event": r["event"], "source": r["source"],
+        "package_name": r["package_name"], "package_version": r["package_version"],
+        "verdict": r["verdict"], "score": r["score"], "reason": r["reason"],
+        "rules": json.loads(r["rules_json"]) if r["rules_json"] else None,
+        "track_statuses": json.loads(r["tracks_json"]) if r["tracks_json"] else None,
+        "timing": json.loads(r["timing_json"]) if r["timing_json"] else None,
+        "extra": json.loads(r["extra_json"]) if r["extra_json"] else None,
+        "created_at": r["created_at"],
+    }
+
+
 @_with_db
 def history(limit: int = 100, event: str = "", verdict: str = "", q: str = "") -> list[dict]:
     where, params = [], []
@@ -134,19 +147,28 @@ def history(limit: int = 100, event: str = "", verdict: str = "", q: str = "") -
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     rows = _conn.execute(
         f"SELECT * FROM events {clause} ORDER BY id DESC LIMIT ?", (*params, limit)).fetchall()
-    out = []
-    for r in rows:
-        out.append({
-            "id": r["id"], "event": r["event"], "source": r["source"],
-            "package_name": r["package_name"], "package_version": r["package_version"],
-            "verdict": r["verdict"], "score": r["score"], "reason": r["reason"],
-            "rules": json.loads(r["rules_json"]) if r["rules_json"] else None,
-            "track_statuses": json.loads(r["tracks_json"]) if r["tracks_json"] else None,
-            "timing": json.loads(r["timing_json"]) if r["timing_json"] else None,
-            "extra": json.loads(r["extra_json"]) if r["extra_json"] else None,
-            "created_at": r["created_at"],
-        })
-    return out
+    return [_row_to_event(r) for r in rows]
+
+
+# 판정이 실린 이벤트만 고른다. cooldown_hold는 계보 수집을 건너뛴 보류라
+# 규칙 정보가 비어 있어, "이 패키지의 마지막 판정"으로 쓰면 오해를 준다.
+_VERDICT_EVENTS = "event IN ('scan','install','block') AND package_name IS NOT NULL AND verdict IS NOT NULL"
+
+
+@_with_db
+def latest_scans(limit: int = 200) -> list[dict]:
+    """패키지별 **가장 최근 판정** 하나씩. 최신순.
+
+    Package Explorer와 Installed Packages가 이걸 읽는다. 그 두 화면은 원래
+    브라우저 메모리의 이번 세션 스캔만 보여줘서, 터미널(safe-npm)에서 일어난
+    설치가 전혀 보이지 않았다.
+    """
+    rows = _conn.execute(
+        f"""SELECT * FROM events
+            WHERE {_VERDICT_EVENTS}
+              AND id IN (SELECT MAX(id) FROM events WHERE {_VERDICT_EVENTS} GROUP BY package_name)
+            ORDER BY id DESC LIMIT ?""", (limit,)).fetchall()
+    return [_row_to_event(r) for r in rows]
 
 
 @_with_db
@@ -207,5 +229,5 @@ def inventory_view(q: str = "") -> dict[str, Any]:
     return {"packages": packages, "projects": projects}
 
 
-__all__ = ["record_event", "save_inventory", "history", "stats", "timeseries",
-           "inventory_view", "DB_PATH"]
+__all__ = ["record_event", "save_inventory", "history", "latest_scans", "stats",
+           "timeseries", "inventory_view", "DB_PATH"]
