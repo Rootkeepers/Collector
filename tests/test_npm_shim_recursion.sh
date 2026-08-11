@@ -71,7 +71,8 @@ run_case() {
     local label="$1" search_path="$2"
     : > "$COUNT_FILE"
 
-    PATH="$search_path" timeout 20 npm install lodash
+    # timeout은 축소된 PATH가 아니라 테스트 셸의 것으로 찾아야 한다.
+    PATH="$search_path" "$TIMEOUT_ABS" 20 npm install lodash
     local status=$?
 
     [ "$status" -ne 124 ] || fail "[$label] 20초 안에 끝나지 않았다 — 재귀에 빠졌다"
@@ -89,12 +90,24 @@ run_case() {
     echo "[PASS] $label — safe-npm=${safe_calls}회, real npm=${real_calls}회"
 }
 
-# shim이 쓰는 외부 명령(grep/tr)만 있는 최소 경로. 여기에 npm이 있으면 안 된다.
-UTIL_PATH="$(dirname "$(command -v grep)"):$(dirname "$(command -v tr)")"
-command -v npm >/dev/null 2>&1 && [ -z "${ALLOW_SYSTEM_NPM:-}" ] && {
-    PATH="$UTIL_PATH" command -v npm >/dev/null 2>&1 &&
-        fail "최소 경로에 실제 npm이 있어 테스트가 오염된다"
-}
+# shim은 bash/grep/tr을 PATH에서 찾아 쓴다. 그 시스템 경로를 그대로 쓰면 진짜
+# npm이 딸려 들어와(Fedora는 /usr/bin에 grep과 npm이 함께 있다) "맨 끝" 경우를
+# 검증할 수 없다. 그렇다고 npm이 있는 디렉터리를 빼면 grep까지 사라진다.
+#
+# 그래서 필요한 명령만 절대 경로로 위임하는 **얇은 래퍼**를 샌드박스에 둔다.
+# 바이너리를 복사하지 않으므로 공유 라이브러리 의존성이 깨질 일도 없다.
+TIMEOUT_ABS="$(command -v timeout)" || fail "timeout이 필요하다 (coreutils)"
+BASH_ABS="$(command -v bash)" || fail "bash를 찾을 수 없다"
+mkdir -p "$TMP/util"
+for cmd in bash grep tr; do
+    real="$(command -v "$cmd")" || fail "$cmd 을(를) 찾을 수 없다"
+    { printf '#!%s\n' "$BASH_ABS"; printf 'exec %q "$@"\n' "$real"; } > "$TMP/util/$cmd"
+    chmod +x "$TMP/util/$cmd"
+done
+UTIL_PATH="$TMP/util"
+
+PATH="$UTIL_PATH" command -v grep >/dev/null 2>&1 || fail "샌드박스에 grep이 없다"
+PATH="$UTIL_PATH" command -v npm  >/dev/null 2>&1 && fail "샌드박스에 npm이 섞여 테스트가 오염된다"
 
 # 낡은 shim이 중간에 끼어 있는 상황.
 run_case "진짜 npm이 PATH 중간" \
