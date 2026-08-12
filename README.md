@@ -31,10 +31,10 @@ pipx ensurepath
 
 ## GitHub 토큰 설정
 
-`src/rootkeepers/collectors/.env.example`을 참고해 프로젝트 루트에 `.env` 파일을 만든다.
+`.env.example`을 참고해 프로젝트 루트에 `.env` 파일을 만든다.
 
 ```bash
-cp src/rootkeepers/collectors/.env.example .env
+cp .env.example .env
 ```
 
 `.env`에 발급받은 토큰을 채워넣는다.

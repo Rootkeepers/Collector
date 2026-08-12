@@ -1,11 +1,22 @@
+"""vite@5.2.0 하나를 대상으로 sigstore 수집 흐름 전체를 훑는 수동 점검 스크립트.
+
+npm attestation 조회 → DSSE에서 predicate 추출 → SLSA/OIDC/Rekor 파싱 →
+cross-validation 까지를 한 번에 태워 본다. 실제 네트워크를 쓰고 대상 버전이
+하드코딩돼 있어 자동 테스트가 아니다 — 개발 중 눈으로 확인하는 용도다.
+
+정식 진입점은 ``python -m rootkeepers.collectors.sigstore`` 다.
+
+실행: python tests/sigstore/run_test.py
+"""
+
 import json
 import requests
 
-from bundle_parser import BundleParseError, extract_predicate_from_dsse
-from predicate_parser import parse_slsa_predicate
-from oidc_parser import parse_fulcio_oidc_info, OIDCParseError
-from rekor_parser import parse_rekor_log_info, RekorParseError
-from cross_validator import validate_oidc_matches_predicate
+from rootkeepers.collectors.sigstore.bundle_parser import BundleParseError, extract_predicate_from_dsse
+from rootkeepers.collectors.sigstore.predicate_parser import parse_slsa_predicate
+from rootkeepers.collectors.sigstore.oidc_parser import parse_fulcio_oidc_info, OIDCParseError
+from rootkeepers.collectors.sigstore.rekor_parser import parse_rekor_log_info, RekorParseError
+from rootkeepers.collectors.sigstore.cross_validator import validate_oidc_matches_predicate
 
 ATTESTATIONS_URL = "https://registry.npmjs.org/-/npm/v1/attestations/vite@5.2.0"
 

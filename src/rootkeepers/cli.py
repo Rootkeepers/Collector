@@ -196,11 +196,9 @@ def cmd_doctor(_args) -> int:
 
     # --- 이력 DB --------------------------------------------------------
     try:
-        count = store.stats()["total_events"]
-        rep.add(OK, "이력 DB", f"{store.DB_PATH} (이벤트 {count}건)")
+        rep.add(OK, "이력 DB", f"{store.DB_PATH} (이벤트 {store.stats()['total_events']}건)")
     except Exception as exc:  # noqa: BLE001
         rep.add(BAD, "이력 DB", f"{store.DB_PATH} 열기 실패: {exc}")
-        count = None
     if console_db and console_db != str(store.DB_PATH):
         rep.add(WARN, "DB 불일치", f"콘솔은 {console_db} 를 봅니다 — 터미널 기록이 그 화면에 안 보입니다.",
                 "콘솔을 로컬로 띄우거나 TRUSTGATE_DB_PATH를 맞추세요.")

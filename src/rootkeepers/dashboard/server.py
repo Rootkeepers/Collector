@@ -5,9 +5,13 @@ collect_release_lineage_report + detailed_rule_engine을 실제로 호출해
 외부 프레임워크 의존성 없이 http.server만 사용한다.
 
 실행:
-    python dashboard/server.py [--port 8000]
+    python -m rootkeepers.dashboard [--port 8000]   # 포그라운드
+    trustgate up                                     # 백그라운드
 
 그다음 브라우저에서 http://localhost:8000 접속.
+
+이 모듈은 서버를 띄우는 일만 한다. 백그라운드 실행·정지·상태 조회는
+``trustgate`` CLI(rootkeepers/cli.py)가 background.py를 통해 담당한다.
 """
 
 from __future__ import annotations
@@ -526,26 +530,7 @@ def main():
     parser.add_argument("--host", default=os.getenv("TRUSTGATE_HOST", "127.0.0.1"))
     parser.add_argument("--project", default=os.getenv("TRUSTGATE_PROJECT_DIR", ""),
                         help="Installed Packages 기본 프로젝트 경로")
-    parser.add_argument("--background", action="store_true",
-                        help="터미널에서 분리해 백그라운드로 실행한다")
-    parser.add_argument("--stop", action="store_true", help="백그라운드 콘솔을 종료한다")
-    parser.add_argument("--status", action="store_true", help="실행 상태를 출력한다")
-    parser.add_argument("--force", action="store_true",
-                        help="--stop 시 프로세스 확인에 실패해도 종료를 강행한다")
     args = parser.parse_args()
-
-    if args.stop:
-        return background.stop(force=args.force)
-    if args.status:
-        info = background.status()
-        if info["running"]:
-            print(f"실행 중 · pid {info['pid']} · http://{info['host']}:{info['port']}")
-        else:
-            print("실행 중이 아닙니다.")
-        print(f"로그: {info['log']}")
-        return 0
-    if args.background:
-        return background.start(args.host, args.port, args.project)
 
     global DEFAULT_PROJECT_DIR
     if args.project:
@@ -560,7 +545,8 @@ def main():
     if args.host == "0.0.0.0":  # noqa: S104 — 컨테이너에서는 의도된 설정
         print("  [주의] 모든 인터페이스에 열려 있습니다. 이 콘솔은 인증이 없고")
         print("         패키지 설치를 실행할 수 있으므로 신뢰된 네트워크에서만 노출하세요.")
-    # 포그라운드로 띄운 것도 기록해야 --status가 "실행 중이 아님"이라고 거짓말하지 않는다.
+    # 포그라운드로 띄운 것도 기록해야 trustgate status가 "실행 중이 아님"이라고
+    # 거짓말하지 않고, trustgate down 으로 끌 수 있다.
     background.write_record(args.host, args.port)
     try:
         httpd.serve_forever()

@@ -2,7 +2,10 @@
 
 ``nohup ... &`` 로도 되지만, 그러면 PID를 사용자가 직접 챙겨야 하고 로그가 어디
 쌓이는지도 매번 달라진다. 여기서 PID 파일과 로그 위치를 한 곳으로 정해
-``--background`` / ``--stop`` / ``--status`` 세 가지로 다룰 수 있게 한다.
+``trustgate up`` / ``down`` / ``status`` 로 다룰 수 있게 한다.
+
+이 모듈은 프로세스만 다룬다 — 서버 자체는 server.py, 사용자 인터페이스는
+rootkeepers/cli.py 다.
 
 PID 재사용 주의: PID만 믿고 죽이면 그 사이 같은 번호를 받은 **엉뚱한 프로세스**를
 죽일 수 있다. 그래서 정지 전에 "정말 우리 콘솔인지"를 한 번 더 확인한다
@@ -99,7 +102,7 @@ def status() -> dict:
 def write_record(host: str, port: int) -> None:
     """서버가 뜨자마자 자기 정보를 남긴다 (포그라운드 실행도 포함).
 
-    포그라운드로 띄운 것도 기록해야 ``--status``가 거짓말을 하지 않는다.
+    포그라운드로 띄운 것도 기록해야 ``trustgate status``가 거짓말을 하지 않는다.
     """
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     PID_FILE.write_text(json.dumps({"pid": os.getpid(), "host": host, "port": port}), encoding="utf-8")
@@ -143,7 +146,7 @@ def start(host: str, port: int, project: str = "") -> int:
         if _health_ok(host, port):
             print(f"TrustGate Scan Console (백그라운드) → http://{_loopback(host)}:{port}")
             print(f"  pid {proc.pid} · 로그 {LOG_FILE}")
-            print(f"  정지: python -m {_MODULE} --stop")
+            print("  정지: trustgate down")
             return 0
         if proc.poll() is not None:
             break
@@ -165,7 +168,7 @@ def stop(force: bool = False) -> int:
     if not force and _is_ours(pid, host, port) is not True:
         print(f"[ERROR] pid {pid}가 TrustGate 콘솔인지 확인할 수 없습니다. "
               f"PID가 재사용됐을 수 있어 종료하지 않습니다.\n"
-              f"        정말 종료하려면: python -m {_MODULE} --stop --force", file=sys.stderr)
+              f"        정말 종료하려면: trustgate down --force", file=sys.stderr)
         return 1
 
     try:
