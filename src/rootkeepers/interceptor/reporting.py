@@ -9,6 +9,9 @@
 - 호출자는 절대 기다리지 않는다. 전송은 데몬 스레드에서 일어나고 이 모듈의
   함수는 즉시 리턴한다. **콘솔이 꺼져 있어도 npm install 차단/허용 흐름은
   100% 그대로 동작해야 한다.**
+- 콘솔이 응답하지 않으면 이 프로세스가 이력 DB에 **직접** 기록한다
+  (``_store_locally``). 전송만 하던 시절에는 콘솔이 꺼져 있는 동안의 터미널
+  설치가 통째로 유실됐다. 저장 실패 역시 설치 흐름을 막지 않는다.
 - 기본은 로컬 콘솔(127.0.0.1:8000). ``TRUSTGATE_CONSOLE_URL``로 바꿀 수 있고,
   빈 값으로 두면 전송 자체를 끈다.
 
@@ -41,6 +44,46 @@ def _client_name() -> str:
     return os.getenv("TRUSTGATE_CLIENT", "safe-npm")
 
 
+def _store_locally(path: str, payload: dict) -> bool:
+    """콘솔이 응답하지 않을 때 이력 DB에 직접 쓴다.
+
+    원래 이 모듈은 HTTP 전송만 하고 저장은 콘솔이 맡았다. 그러면 **콘솔이 꺼져
+    있는 동안의 터미널 설치가 통째로 사라져서**, 나중에 대시보드를 켜도 그
+    기록이 없다. 전송이 실패한 경우에 한해 같은 SQLite에 직접 기록한다.
+
+    임포트를 함수 안에서 하는 이유: ``store``는 임포트 시점에 DB 파일을 열고
+    테이블을 만든다. 전송이 정상인 경로에서는 그 비용을 치르지 않는다.
+
+    주의: 이 프로세스가 쓰는 DB는 ``TRUSTGATE_DB_PATH`` 또는
+    ``~/.trustgate/history.sqlite3``다. 대시보드를 컨테이너로 돌리면 그쪽은
+    볼륨 안의 다른 파일을 보므로, 여기 남긴 기록이 그 화면에는 보이지 않는다.
+
+    Returns:
+        기록에 성공했으면 True.
+    """
+    try:
+        from rootkeepers.dashboard import store
+
+        if path == "/api/ingest":
+            store.record_event(
+                payload.get("event") or "scan", payload.get("scan") or {},
+                source=payload.get("source") or _client_name(),
+                extra=payload.get("extra"),
+            )
+            return True
+        if path == "/api/ingest-inventory":
+            key = payload.get("project_key")
+            packages = payload.get("packages")
+            if not key or not isinstance(packages, list):
+                return False
+            store.save_inventory(payload.get("project"), key, packages)
+            return True
+    except Exception as exc:  # noqa: BLE001
+        # 저장 실패도 설치 흐름을 막지 않는다. 다만 조용히 삼키면 원인을 못 찾는다.
+        sys.stderr.write(f"[report] 로컬 이력 기록 실패: {exc}\n")
+    return False
+
+
 def _post(path: str, payload: dict, label: str) -> None:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
@@ -49,9 +92,15 @@ def _post(path: str, payload: dict, label: str) -> None:
     )
     try:
         urllib.request.urlopen(req, timeout=REPORT_TIMEOUT_SEC).close()
+        return
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         # fire-and-forget: 콘솔이 꺼져 있어도 설치 흐름엔 영향 없음
-        sys.stderr.write(f"[report] {label} 전송 실패 (무시하고 진행): {exc}\n")
+        reason = exc
+
+    if _store_locally(path, payload):
+        sys.stderr.write(f"[report] {label}: 콘솔 미응답 → 로컬 이력에 직접 기록했습니다.\n")
+    else:
+        sys.stderr.write(f"[report] {label} 전송 실패 (무시하고 진행): {reason}\n")
 
 
 def _spawn(fn) -> None:
