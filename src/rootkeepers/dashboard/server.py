@@ -46,7 +46,7 @@ INSTALL_TIMEOUT_SEC = 180
 
 # 리포팅·스캔 로직은 CLI 래퍼(safe-npm)와 공유한다 — 같은 패키지에 대해
 # 터미널과 대시보드가 다른 판정을 내놓지 않도록 하기 위함이다.
-from rootkeepers.dashboard import store  # noqa: E402
+from rootkeepers.dashboard import background, store  # noqa: E402
 from rootkeepers.interceptor.scanning import scan_package  # noqa: E402
 
 
@@ -526,7 +526,26 @@ def main():
     parser.add_argument("--host", default=os.getenv("TRUSTGATE_HOST", "127.0.0.1"))
     parser.add_argument("--project", default=os.getenv("TRUSTGATE_PROJECT_DIR", ""),
                         help="Installed Packages 기본 프로젝트 경로")
+    parser.add_argument("--background", action="store_true",
+                        help="터미널에서 분리해 백그라운드로 실행한다")
+    parser.add_argument("--stop", action="store_true", help="백그라운드 콘솔을 종료한다")
+    parser.add_argument("--status", action="store_true", help="실행 상태를 출력한다")
+    parser.add_argument("--force", action="store_true",
+                        help="--stop 시 프로세스 확인에 실패해도 종료를 강행한다")
     args = parser.parse_args()
+
+    if args.stop:
+        return background.stop(force=args.force)
+    if args.status:
+        info = background.status()
+        if info["running"]:
+            print(f"실행 중 · pid {info['pid']} · http://{info['host']}:{info['port']}")
+        else:
+            print("실행 중이 아닙니다.")
+        print(f"로그: {info['log']}")
+        return 0
+    if args.background:
+        return background.start(args.host, args.port, args.project)
 
     global DEFAULT_PROJECT_DIR
     if args.project:
@@ -541,11 +560,16 @@ def main():
     if args.host == "0.0.0.0":  # noqa: S104 — 컨테이너에서는 의도된 설정
         print("  [주의] 모든 인터페이스에 열려 있습니다. 이 콘솔은 인증이 없고")
         print("         패키지 설치를 실행할 수 있으므로 신뢰된 네트워크에서만 노출하세요.")
+    # 포그라운드로 띄운 것도 기록해야 --status가 "실행 중이 아님"이라고 거짓말하지 않는다.
+    background.write_record(args.host, args.port)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        background.clear_record()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
