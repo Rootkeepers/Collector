@@ -1,11 +1,13 @@
 import os
-from pathlib import Path
 
-from dotenv import load_dotenv
 from github import Github, Auth  # Auth 추가
 from github import GithubException, BadCredentialsException, UnknownObjectException, RateLimitExceededException
 
-load_dotenv(Path(__file__).resolve().parents[4] / ".env")
+from rootkeepers.paths import load_env
+
+# 고정 깊이(parents[4])로 루트를 찾으면 파일을 한 칸만 옮겨도 조용히 실패한다
+# (load_dotenv 는 파일이 없어도 에러를 내지 않는다). 표식 기반 탐색으로 대체.
+load_env()
 
 class GithubRateLimitError(Exception):
     pass

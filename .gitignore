@@ -7,7 +7,13 @@ __pycache__/
 *.pyd
 *.so
 
+# TrustGate 로컬 상태 — 머신마다 다르므로 공유하지 않는다
+.trustgate/
+*.sqlite3
+
 # Virtual environments
+# (.env 는 실제 GITHUB_TOKEN 이 들어가므로 절대 커밋하지 않는다.
+#  필요한 변수는 .env.example 을 참고할 것)
 .env
 .venv
 .venv/
@@ -107,3 +113,7 @@ test_bundle.json
 node_modules/
 package.json
 package-lock.json
+# 단, 예제 프로젝트는 커밋한다 — compose 기본 검사 대상이라
+# 이게 없으면 새로 clone 했을 때 Installed Packages 화면이 비어 있다.
+!examples/**/package.json
+!examples/**/package-lock.json

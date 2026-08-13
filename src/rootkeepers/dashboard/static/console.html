@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrustGate · Rootkeepers</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="shell">
+  <nav class="sidebar">
+    <div class="brand">
+      <div class="monogram">RK</div>
+      <div class="brand-text"><div class="org">TrustGate</div><div class="tagline">Rootkeepers</div></div>
+    </div>
+    <button class="nav-item active" data-view="dashboard"><span class="ic">◆</span>Dashboard</button>
+    <button class="nav-item" data-view="explorer"><span class="ic">▤</span>Package Explorer</button>
+    <button class="nav-item" data-view="installed"><span class="ic">⬇</span>Installed Packages</button>
+    <button class="nav-item" data-view="history"><span class="ic">▧</span>History</button>
+    <div class="sidebar-foot">Rootkeepers</div>
+  </nav>
+
+  <div>
+    <header class="topbar">
+      <div class="global-search">
+        <span class="sic">⌕</span>
+        <input type="text" id="global-search" placeholder="패키지 검색 (이름/버전)…">
+      </div>
+      <div class="topbar-right">
+        <span class="status-pill" id="conn-pill"><span class="dot"></span><span id="conn-label">연결 확인 중…</span></span>
+      </div>
+    </header>
+
+    <main>
+      <!-- ================= Dashboard ================= -->
+      <section class="view active" id="view-dashboard">
+        <div class="view-head">
+          <h1>Dashboard</h1>
+        </div>
+        <div class="cards-row" id="overview-cards"></div>
+        <div class="grid-2">
+          <div class="panel">
+            <h2>패키지 스캔</h2>
+            <p class="subhead">npm 패키지 스캔</p>
+            <div class="scan-form">
+              <input type="text" id="scan-input" class="mono" placeholder="예: left-pad, react@18.2.0, lodash">
+              <button class="btn primary" id="scan-btn">스캔 실행</button>
+            </div>
+            <div class="scan-hint">빠른 시작: <button id="quick-lodash">lodash</button> · <button id="quick-react">react</button> · <button id="quick-leftpad">left-pad</button></div>
+            <div id="scan-status-area"></div>
+          </div>
+          <div class="panel">
+            <h2>최근 스캔 개요</h2>
+            <p class="subhead">가장 최근 실행한 스캔</p>
+            <div id="dashboard-recent"><div class="no-selection">아직 스캔 기록이 없다.</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= Package Explorer ================= -->
+      <section class="view" id="view-explorer">
+        <div class="view-head"><h1>Package Explorer</h1></div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="pkg-table">
+              <thead><tr><th>Package</th><th>Version</th><th>Publish Time</th><th>Risk Score</th><th>Decision</th><th>Collector Status</th></tr></thead>
+              <tbody id="explorer-tbody"></tbody>
+            </table>
+          </div>
+          <div id="explorer-empty" class="empty-hint">아직 실행한 스캔이 없다. Dashboard에서 패키지를 스캔하라.</div>
+        </div>
+        <div id="explorer-detail-panel"></div>
+      </section>
+
+      <!-- ================= Installed Packages ================= -->
+      <section class="view" id="view-installed">
+        <div class="view-head"><h1>Installed Packages</h1></div>
+        <div class="panel">
+          <h2>프로젝트 경로</h2>
+          <p class="subhead">프로젝트 경로 지정</p>
+          <div class="scan-form">
+            <input type="text" id="installed-project" class="mono" placeholder="예: C:/Users/me/my-project">
+            <button class="btn primary" id="installed-load-btn">불러오기</button>
+          </div>
+          <div id="installed-status-area"></div>
+        </div>
+        <div class="panel" id="installed-panel" style="display:none;">
+          <div class="table-wrap">
+            <table class="pkg-table">
+              <thead><tr><th>Package</th><th>Installed</th><th>Latest</th><th>마지막 판정</th><th>Cooldown</th><th>Action</th></tr></thead>
+              <tbody id="installed-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= History ================= -->
+      <section class="view" id="view-history">
+        <div class="view-head"><h1>History</h1></div>
+        <div class="cards-row" id="hist-cards"></div>
+        <div class="panel">
+          <h2>일자별 활동</h2>
+          <div id="hist-trend"></div>
+          <div class="trend-legend" id="hist-trend-legend"></div>
+        </div>
+        <div class="panel">
+          <h2>이벤트</h2>
+          <div class="filters">
+            <input type="text" id="h-q" placeholder="패키지 · 출처 검색…">
+            <select id="h-event">
+              <option value="">모든 이벤트</option>
+              <option value="scan">scan</option>
+              <option value="install">install</option>
+              <option value="block">block</option>
+              <option value="cooldown_hold">cooldown_hold</option>
+            </select>
+            <select id="h-verdict">
+              <option value="">모든 판정</option>
+              <option value="PASS">PASS</option>
+              <option value="RISK">RISK</option>
+              <option value="UNVERIFIABLE">UNVERIFIABLE</option>
+            </select>
+            <span class="filter-count" id="h-count"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="pkg-table">
+              <thead><tr><th>시각</th><th>출처</th><th>이벤트</th><th>패키지</th><th>판정</th><th>점수</th><th></th></tr></thead>
+              <tbody id="hist-tbody"></tbody>
+            </table>
+          </div>
+          <div id="hist-empty" class="empty-hint" style="display:none;">아직 기록이 없다.</div>
+        </div>
+      </section>
+
+      <footer class="page-foot">TrustGate Scan Console</footer>
+    </main>
+  </div>
+</div>
+
+<div id="tooltip"><div class="tt-title"></div><div class="tt-body"></div></div>
+
+<script src="app.js"></script>
+</body>
+</html>

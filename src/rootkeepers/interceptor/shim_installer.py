@@ -20,15 +20,30 @@ SHIM_TEMPLATE = f"""#!/usr/bin/env bash
 {SHIM_MARKER} (safe-npm-setup으로 생성됨 — 수동 편집하지 말고 `safe-npm-setup --uninstall` 후 재설치하세요)
 set -euo pipefail
 
-SHIM_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
-
-# 실제 npm은 이 shim 디렉터리를 제외한 PATH에서 찾는다 (자기 자신 재귀 호출 방지).
-STRIPPED_PATH="$(printf '%s' "$PATH" | tr ':' '\\n' | grep -vxF "$SHIM_DIR" | paste -sd: -)"
-REAL_NPM="$(PATH="$STRIPPED_PATH" command -v npm || true)"
+# 실제 npm은 PATH를 훑어 "우리 shim이 아닌" 첫 npm으로 고른다. 디렉터리가 아니라
+# 파일 내용(마커)으로 판별하므로, shim이 여러 디렉터리에 남아 있어도 서로를 진짜
+# npm으로 착각해 핑퐁하지 않는다.
+REAL_NPM=""
+while IFS= read -r rk_dir; do
+    [ -n "$rk_dir" ] || continue
+    rk_cand="$rk_dir/npm"
+    [ -x "$rk_cand" ] || continue
+    grep -qF "{SHIM_MARKER}" "$rk_cand" 2>/dev/null && continue
+    REAL_NPM="$rk_cand"
+    break
+    # %s\\n: 마지막 항목에도 개행을 붙인다. 없으면 read가 non-zero를 반환해
+    # PATH의 **마지막 디렉터리가 통째로 누락**된다 (거기 npm이 있으면 못 찾는다).
+done < <(printf '%s\\n' "$PATH" | tr ':' '\\n')
 
 if [ -z "$REAL_NPM" ]; then
     echo "[ERROR] 실제 npm 바이너리를 찾을 수 없습니다." >&2
     exit 1
+fi
+
+# npm이 내부적으로 npm을 다시 부르는 경우(라이프사이클 스크립트 등)에는 검사를
+# 반복하지 않고 그대로 통과시킨다 — 중첩 스캔과 재귀를 막는다.
+if [ -n "${{ROOTKEEPERS_NPM_SHIM_ACTIVE:-}}" ]; then
+    exec "$REAL_NPM" "$@"
 fi
 
 SAFE_NPM="$(command -v safe-npm || true)"
@@ -38,6 +53,7 @@ if [ -z "$SAFE_NPM" ]; then
 fi
 
 export ROOTKEEPERS_REAL_NPM="$REAL_NPM"
+export ROOTKEEPERS_NPM_SHIM_ACTIVE=1
 exec "$SAFE_NPM" "$@"
 """
 

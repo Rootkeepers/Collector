@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-from rootkeepers.collectors.npm._main_ import collect_npm_release
+from rootkeepers.collectors.npm.__main__ import collect_npm_release
 from rootkeepers.interceptor.detailed_rule_engine import (
     evaluate_detailed_evidence,
     evidence_from_lineage,
@@ -94,27 +94,9 @@ def collect_release_lineage_report(
             "github", lambda: _collect_github(github_owner_repo, github_git_head)
         )
 
-    # Build historical evidence against npm's exact previous versions.  npm
-    # carries the release ordering; Sigstore fills in builder/OIDC/workflow
-    # identity and missing gitHeads; GitHub then resolves those same commits.
-    npm_baseline = _enrich_npm_baseline(
-        package_name,
-        _mapping_from_track(npm_result, "baseline"),
-        sigstore_timeout,
-    )
-    current_workflow = _slsa_workflow_path(track_results.get("sigstore", {}))
-    if github_owner_repo and github_git_head:
-        track_results["github"] = _run_track(
-            "github",
-            lambda: _collect_github(
-                github_owner_repo,
-                github_git_head,
-                baseline_releases=npm_baseline.get("releases"),
-                workflow_entry_point=current_workflow,
-            ),
-        )
+    npm_baseline = _mapping_from_track(npm_result, "baseline")
+    github_baseline = _mapping_from_track(track_results.get("github"), "baseline")
 
-    github_baseline = _mapping_from_track(track_results.get("github", {}), "baseline")
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": _utc_now(),
@@ -234,33 +216,9 @@ def _collect_sigstore(
     version: str,
     timeout: int,
 ) -> dict[str, Any]:
-    from rootkeepers.collectors.sigstore._main_ import collect_release_lineage
+    from rootkeepers.collectors.sigstore.__main__ import collect_release_lineage
 
     return collect_release_lineage(package_name, version, timeout=timeout)
-
-
-def _slsa_git_reference(sigstore_track: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Return repository and commit carried by a successful SLSA result.
-
-    The Sigstore collector normalizes the relevant predicate fields under
-    ``slsa_predicate``.  This helper intentionally treats malformed or failed
-    Track C results as missing evidence, so the GitHub track remains
-    ``SKIPPED`` rather than guessing a commit.
-    """
-    if sigstore_track.get("status") != "SUCCESS":
-        return None, None
-    data = sigstore_track.get("data")
-    if not isinstance(data, dict):
-        return None, None
-    predicate = data.get("slsa_predicate")
-    if not isinstance(predicate, dict):
-        return None, None
-    repository = predicate.get("repository")
-    commit = predicate.get("commit")
-    return (
-        repository if isinstance(repository, str) and repository else None,
-        commit if isinstance(commit, str) and commit else None,
-    )
 
 
 def _slsa_workflow_path(sigstore_track: dict[str, Any]) -> str | None:
