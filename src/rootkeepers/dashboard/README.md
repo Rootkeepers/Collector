@@ -6,9 +6,9 @@ npm 패키지를 설치하기 전에 계보(npm·GitHub·Sigstore)를 수집해 
 ## 한 줄 실행
 
 ```bash
-docker compose up -d --build
+trustgate up
 ```
-→ http://localhost:8000
+→ http://localhost:8000 · 종료는 `trustgate down`, 진단은 `trustgate doctor`
 
 **필요한 것**: 루트에 `.env` 파일로 `GITHUB_TOKEN=...` (레포에 커밋되지 않음)
 
@@ -42,9 +42,8 @@ export PYTHONPATH="/path/to/Collector/src"
 
 `install` 이외의 서브커맨드(`run`, `ci`, `publish` …)는 검사 없이 그대로 npm에 넘어간다.
 
-> 컨테이너 안에서는 `npm ls` 를 해도 **호스트 PC에 깔린 패키지가 보이지 않는다**(컨테이너는 자기 환경만 본다).
-> 그래서 다른 폴더의 설치 목록을 화면에 띄우려면 그 폴더에서 위 `--trustgate-sync` 를 한 번 실행해야 한다.
-> compose가 마운트한 폴더(`TRUSTGATE_PROJECT_DIR`)는 콘솔이 직접 읽으므로 이 과정이 필요 없다.
+> `TRUSTGATE_PROJECT_DIR`가 가리키는 폴더는 콘솔이 직접 읽는다. 그 밖의 폴더를
+> 화면에 띄우려면 해당 폴더에서 위 `--trustgate-sync` 를 한 번 실행하면 된다.
 
 ---
 
@@ -54,8 +53,9 @@ export PYTHONPATH="/path/to/Collector/src"
 |---|---|---|
 | `GITHUB_TOKEN` | *(필수)* | GitHub 트랙 수집 |
 | `TRUSTGATE_PROJECT_DIR` | 저장소의 `examples/demo-project/` | Installed Packages 대상 폴더 |
-| `TRUSTGATE_DB_PATH` | `~/.trustgate/history.sqlite3` | 이력 DB (컨테이너는 `/data/…`) |
-| `TRUSTGATE_HOST` / `TRUSTGATE_PORT` | `127.0.0.1` / `8000` | 바인드 (컨테이너는 `0.0.0.0`) |
+| `TRUSTGATE_DB_PATH` | `~/.trustgate/history.sqlite3` | 이력 DB |
+| `TRUSTGATE_HOST` / `TRUSTGATE_PORT` | `127.0.0.1` / `8000` | 바인드 주소 |
+| `TRUSTGATE_RUNTIME_DIR` | `~/.trustgate/` | PID·로그 (`trustgate up`) |
 | `TRUSTGATE_BASELINE` | `sigstore` | 기준선 수집 범위 (아래 참고) |
 | `TRUSTGATE_CONSOLE_URL` | `http://127.0.0.1:8000` | CLI가 결과를 보낼 주소. 비우면 전송 안 함 |
 
@@ -94,7 +94,7 @@ export PYTHONPATH="/path/to/Collector/src"
 ## ⚠️ 보안
 
 이 콘솔은 **인증이 없고 패키지 설치를 실행할 수 있다.** 반드시 `127.0.0.1`에만
-노출할 것 (compose 기본값이 그렇게 되어 있다). 공개 네트워크에 열면 안 된다.
+노출할 것 (`trustgate up` 기본값이 그렇게 되어 있다). 공개 네트워크에 열면 안 된다.
 
 ## 알려진 한계
 

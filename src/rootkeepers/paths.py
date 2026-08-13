@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 # 루트임을 알려 주는 표식. 어느 하나라도 있으면 그 폴더를 루트로 본다.
-_ROOT_MARKERS = ("requirements.txt", "compose.yaml", ".git")
+_ROOT_MARKERS = ("requirements.txt", "pyproject.toml", ".git")
 
 
 def _find_root(start: Path) -> Path:
@@ -30,7 +30,7 @@ def _find_root(start: Path) -> Path:
     return start
 
 
-#: 저장소 루트 (compose.yaml / requirements.txt 가 있는 곳)
+#: 저장소 루트 (pyproject.toml / requirements.txt 가 있는 곳)
 PROJECT_ROOT: Path = _find_root(Path(__file__).resolve().parent)
 #: 파이썬 패키지 루트 — ``PYTHONPATH`` 에 들어가야 하는 경로
 SRC_ROOT: Path = PROJECT_ROOT / "src"
@@ -53,8 +53,8 @@ LEGACY_ENV_FILE: Path = SRC_ROOT / "rootkeepers" / "collectors" / ".env"
 def load_env() -> list[Path]:
     """루트 `.env`를 읽는다. 어떤 진입점에서 불러도 결과가 같다.
 
-    python-dotenv가 없어도(선택 의존성) 조용히 넘어간다 — 환경변수를 직접
-    넣어 쓰는 Docker 실행에서는 dotenv가 필요 없기 때문이다.
+    python-dotenv가 없어도(선택 의존성) 조용히 넘어간다 — 환경변수를 셸이나
+    서비스 파일에서 직접 넣어 쓰는 경우에는 dotenv가 필요 없기 때문이다.
 
     Returns:
         실제로 읽은 파일 목록. 읽지 못했으면 빈 리스트.
@@ -71,7 +71,7 @@ def load_env() -> list[Path]:
 
     if not ENV_FILE.exists():
         return []
-    # override=False: 이미 설정된 환경변수(Docker의 -e 등)가 항상 이긴다.
+    # override=False: 이미 설정된 환경변수(셸 export 등)가 항상 이긴다.
     load_dotenv(ENV_FILE, override=False)
     return [ENV_FILE]
 

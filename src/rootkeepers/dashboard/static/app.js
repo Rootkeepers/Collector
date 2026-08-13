@@ -286,7 +286,73 @@
     { id: 'rules', label: '규칙 점수' },
     { id: 'evidence', label: '증거 JSON' },
     { id: 'report', label: '리포트' },
+    { id: 'ai', label: 'AI 요약' },
   ];
+
+  /* 패키지별 AI 요약 상태. 탭을 오가도 결과가 날아가지 않게 보관한다.
+   * key -> { status: 'idle'|'loading'|'done'|'error'|'unavailable', text, error } */
+  const aiSummaries = {};
+  const aiKey = (p) => `${p.name}@${p.version || ''}`;
+
+  async function requestAiSummary(p, containerId) {
+    const key = aiKey(p);
+    aiSummaries[key] = { status: 'loading' };
+    renderDetail(containerId);
+    try {
+      const res = await fetch('/api/ai-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({
+          package: p.name, version: p.version,
+          verdict: p.decision.verdict, score: p.decision.score, reason: p.decision.reason,
+          rules: p.rules, track_statuses: p.trackStatuses,
+        }),
+      });
+      // 서버에 아직 엔드포인트가 없는 경우와 실제 오류를 구분한다.
+      if (res.status === 404 || res.status === 501) {
+        aiSummaries[key] = { status: 'unavailable' };
+      } else {
+        const data = await res.json();
+        aiSummaries[key] = (data.ok && data.summary)
+          ? { status: 'done', text: data.summary }
+          : { status: 'error', error: data.error || '요약을 받지 못했습니다.' };
+      }
+    } catch (err) {
+      aiSummaries[key] = { status: 'error', error: String(err) };
+    }
+    renderDetail(containerId);
+  }
+
+  function renderAiTab(body, p, containerId) {
+    const state = aiSummaries[aiKey(p)] || { status: 'idle' };
+
+    let panel;
+    if (state.status === 'loading') {
+      panel = `<div class="ai-status"><span class="spinner"></span><span>요약을 생성하는 중…</span></div>`;
+    } else if (state.status === 'done') {
+      panel = `<div class="ai-summary">${escapeHtml(state.text).replace(/\n/g, '<br>')}</div>`;
+    } else if (state.status === 'unavailable') {
+      panel = `<div class="ai-empty">이 서버에는 요약 기능이 아직 연결되지 않았습니다.
+               <span class="mono">POST /api/ai-summary</span> 가 붙으면 이 화면이 그대로 동작합니다.</div>`;
+    } else if (state.status === 'error') {
+      panel = `<div class="scan-error"><b>요약 실패</b> — ${escapeHtml(state.error)}</div>`;
+    } else {
+      panel = `<div class="ai-empty">아직 생성된 요약이 없습니다.</div>`;
+    }
+
+    body.innerHTML = `
+      <p class="subhead">이 패키지의 판정과 규칙 결과를 문장으로 요약한다.</p>
+      <div class="scan-form">
+        <button class="btn primary" id="ai-run" ${state.status === 'loading' ? 'disabled' : ''}>
+          ${state.status === 'done' ? '다시 생성' : '요약 생성'}
+        </button>
+      </div>
+      ${panel}
+      <p class="ai-caveat">생성된 문장은 참고용이다. 설치 여부를 가르는 근거는
+        <b>규칙 점수</b>와 <b>증거 JSON</b> 탭의 원본 값이다.</p>
+    `;
+    body.querySelector('#ai-run').addEventListener('click', () => requestAiSummary(p, containerId));
+  }
 
   function renderDetail(containerId) {
     const panel = document.getElementById(containerId);
@@ -321,6 +387,7 @@
     if (detailTab === 'overview') renderOverviewTab(body, p);
     else if (detailTab === 'rules') renderRulesTab(body, p, containerId);
     else if (detailTab === 'evidence') renderEvidenceTab(body, p);
+    else if (detailTab === 'ai') renderAiTab(body, p, containerId);
     else renderReportTab(body, p);
   }
 

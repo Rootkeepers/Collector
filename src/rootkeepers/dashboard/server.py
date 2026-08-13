@@ -524,9 +524,9 @@ class ConsoleHTTPServer(ThreadingHTTPServer):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=int(os.getenv("TRUSTGATE_PORT", "8000")))
-    # 기본값은 루프백 — 개발자 PC에서 실행할 때 실수로 외부에 노출되지 않게 한다.
-    # 컨테이너에서는 127.0.0.1에 묶으면 포트를 매핑해도 밖에서 닿지 않으므로
-    # Dockerfile.console 이 --host 0.0.0.0 을 명시적으로 넘긴다.
+    # 기본값은 루프백 — 실수로 외부에 노출되지 않게 한다. 이 콘솔은 인증이 없고
+    # 패키지 설치를 실행할 수 있어, 다른 기기에서 접근하게 하려면 --host 0.0.0.0 을
+    # 의도적으로 넘겨야 한다.
     parser.add_argument("--host", default=os.getenv("TRUSTGATE_HOST", "127.0.0.1"))
     parser.add_argument("--project", default=os.getenv("TRUSTGATE_PROJECT_DIR", ""),
                         help="Installed Packages 기본 프로젝트 경로")
