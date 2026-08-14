@@ -37,7 +37,7 @@ class Verdict(str, Enum):
 
     PASS = "PASS"
     RISK = "RISK"
-    UNVERIFIABLE = "UNVERIFIABLE"
+    UNVERIFIABLE = "UNVERIFIABLE (RISK)"
 
 
 @dataclass
@@ -192,7 +192,7 @@ def report(result: RiskResult) -> None:
 
 
 def gate_install(targets: list[str]) -> tuple[bool, list[RiskResult]]:
-    """install 대상 패키지들을 전부 검사하고, 하나라도 RISK면 차단한다.
+    """install 대상 패키지들을 전부 검사하고, 하나라도 PASS가 아니면 차단한다.
 
     Args:
         targets: 검사할 패키지 명세 목록.
@@ -213,7 +213,7 @@ def gate_install(targets: list[str]) -> tuple[bool, list[RiskResult]]:
 
         results.append(result)
         report(result)
-        if result.verdict is Verdict.RISK:
+        if result.verdict is not Verdict.PASS:
             blocked = True
             if result.scan:
                 report_event("block", result.scan)
