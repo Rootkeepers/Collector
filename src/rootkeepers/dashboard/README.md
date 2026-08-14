@@ -19,8 +19,8 @@ trustgate up
 | | 내용 |
 |---|---|
 | **Dashboard** | 이번 세션 스캔 지표 + 패키지 스캔 실행 |
-| **Package Explorer** | 스캔 결과 → 클릭하면 개요·규칙 점수·증거 JSON·리포트 탭 |
-| **Installed Packages** | 프로젝트의 설치 버전 vs 최신 버전, 쿨다운 상태, 조기 승인 설치 |
+| **Package Explorer** | 스캔 결과 → 개요·규칙·증거·리포트 + LangGraph AI 분석 탭 |
+| **Installed Packages** | 설치/최신 버전, 쿨다운, OSV 취약 버전 모니터링, 검증 후 수정 버전 설치 |
 | **History** | 콘솔 스캔 + 터미널(`safe-npm`) 활동이 함께 쌓임. 행을 클릭하면 **그때 어떤 규칙이 왜 그렇게 판단했는지** 펼쳐진다. 재시작해도 남는다 |
 
 ---
@@ -58,6 +58,13 @@ export PYTHONPATH="/path/to/Collector/src"
 | `TRUSTGATE_RUNTIME_DIR` | `~/.trustgate/` | PID·로그 (`trustgate up`) |
 | `TRUSTGATE_BASELINE` | `sigstore` | 기준선 수집 범위 (아래 참고) |
 | `TRUSTGATE_CONSOLE_URL` | `http://127.0.0.1:8000` | CLI가 결과를 보낼 주소. 비우면 전송 안 함 |
+| `TRUSTGATE_MONITOR_INTERVAL_MINUTES` | `60` | 대시보드의 읽기 전용 OSV 점검 주기. 0은 끔 |
+| `TRUSTGATE_AI_PROVIDER` | `groq` | Groq 무료 API. 실패하면 로컬 추론으로 자동 폴백 |
+| `GROQ_API_KEY` | *(필수)* | Groq Free tier API 키 |
+| `TRUSTGATE_GROQ_MODEL` | `openai/gpt-oss-20b` | 무료 구조화 출력 모델 |
+| `OPENAI_API_KEY` | *(선택)* | provider가 `openai`일 때만 사용 |
+| `TRUSTGATE_AI_MODEL` | `gpt-5.4-nano` | provider가 `openai`일 때의 Responses API 모델 |
+| `TRUSTGATE_SEMGREP_COMMAND` | `semgrep` | 임시 추출 npm 소스의 선택적 SAST 실행 파일 |
 
 ---
 
@@ -88,6 +95,14 @@ export PYTHONPATH="/path/to/Collector/src"
 **fire-and-forget** — CLI가 콘솔로 보내는 전송은 데몬 스레드에서 일어나고 응답을 기다리지 않는다.
 **콘솔이 꺼져 있어도 `npm install` 차단/허용은 100% 그대로 동작해야 한다.**
 보안 도구가 가용성 단일 장애점이 되면 안 되기 때문이다.
+
+**AI는 advisory-only** — LangGraph는 이력 변화, OSV, 안전 추출+Semgrep을 모아
+Groq 무료 API로 설명과 조치를 제시한다. package source를 실행하지 않고 외부에는
+원문 대신 정규화된 메타데이터만 보낸다. Groq 키·한도·연결 문제가 있으면 로컬
+증거 추론으로 자동 전환한다. AI/OSV/Semgrep 실패는 핵심 판정에 영향을 주지 않는다.
+
+**fail-closed** — 최종 판정이 `PASS`가 아니면 설치하지 않는다.
+`UNVERIFIABLE (RISK)`도 차단한다.
 
 ---
 
