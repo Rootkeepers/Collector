@@ -9,6 +9,8 @@ description = "npm install 인터셉트 기반 공급망 신뢰도 검사기 (Tr
 requires-python = ">=3.10"
 dependencies = [
     "cryptography>=42.0.0",
+    "langgraph>=1.0.0",
+    "pydantic>=2.7.0",
     "PyGithub>=2.9.1",
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
@@ -16,6 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0"]
+sast = ["semgrep>=1.100.0"]
+openai = ["openai>=2.0.0"]
 
 [project.scripts]
 trustgate = "rootkeepers.cli:main"
@@ -24,3 +28,12 @@ safe-npm-setup = "rootkeepers.interceptor.shim_installer:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+rootkeepers = ["analysis/rules/*.yml"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live_ai: 실제 OpenAI Responses API를 한 번 호출하는 선택 통합 테스트",
+    "live_groq: Groq Free tier API를 한 번 호출하는 선택 통합 테스트",
+]
