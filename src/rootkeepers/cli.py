@@ -264,6 +264,25 @@ def cmd_install(args) -> int:
     return interceptor_main()
 
 
+def cmd_monitor(args) -> int:
+    """설치된 직접 의존성의 알려진 취약 버전을 OSV로 일괄 확인한다."""
+    from rootkeepers.analysis.monitoring import monitor_project
+
+    load_env()
+    target = Path(args.project) if args.project else project_dir()
+    result = monitor_project(target)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(f"{target} · {result.get('package_count', 0)}개 확인 · 취약 {result.get('vulnerable_count', 0)}개")
+        for row in result.get("packages") or []:
+            if row.get("status") != "VULNERABLE":
+                continue
+            target_version = row.get("recommended_version") or "공식 권고 확인"
+            print(f"[취약] {row['name']}@{row['version']} · {row.get('count', 0)}건 · 조치: {target_version}")
+    return 0 if result.get("status") == "CLEAN" else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="trustgate", description="npm 공급망 계보 검증 콘솔")
@@ -292,6 +311,11 @@ def main() -> int:
     p = sub.add_parser("install", help="검사 후 통과하면 실제로 설치한다")
     p.add_argument("package", nargs="+")
     p.set_defaults(func=cmd_install)
+
+    p = sub.add_parser("monitor", help="설치된 의존성의 알려진 취약 버전을 점검한다")
+    p.add_argument("--project", default="", help="package.json이 있는 프로젝트 경로")
+    p.add_argument("--json", action="store_true", help="전체 결과를 JSON으로 출력")
+    p.set_defaults(func=cmd_monitor)
 
     args = parser.parse_args()
     return args.func(args)

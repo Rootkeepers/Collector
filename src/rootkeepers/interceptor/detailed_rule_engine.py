@@ -29,7 +29,7 @@ class PackageDecision(str, Enum):
 
     PASS = "PASS"
     RISK = "RISK"
-    UNVERIFIABLE = "UNVERIFIABLE"
+    UNVERIFIABLE = "UNVERIFIABLE (RISK)"
 
 
 class DetailedRuleName(str, Enum):
@@ -79,31 +79,35 @@ class DetailedRuleResult:
 
 @dataclass(frozen=True)
 class DetailedScoringPolicy:
-    """가중 합산·동시발동 보너스·차단 임계값을 보관하는 정책.
+    """가중 합산·동시발동 보너스·보고용 임계값을 보관하는 정책.
 
     Attributes:
         weights: 규칙별 점수를 최종 합산에 반영하는 가중치.
         corroboration_bonus: 두 번째 WARN 이상 규칙부터 규칙당 추가할 점수.
-        block_threshold: 최종 RISK 차단 임계값.
-        minimum_corroborating_rules: 단일 규칙 차단을 막기 위한 최소 발동 규칙 수.
+        block_threshold: 대시보드에서 위험도를 분류할 가중 점수 임계값.
+        minimum_corroborating_rules: 보고용 최소 독립 발동 규칙 수.
     """
 
     weights: Mapping[DetailedRuleName, float]
     corroboration_bonus: int = 10
-    block_threshold: int = 90
-    minimum_corroborating_rules: int = 3
-    minimum_risk_band_rules: int = 3
+    block_threshold: int = 75
+    minimum_corroborating_rules: int = 2
+    minimum_risk_band_rules: int = 2
 
 
 DEFAULT_DETAILED_POLICY: Final[DetailedScoringPolicy] = DetailedScoringPolicy(
     weights={
         DetailedRuleName.ORPHAN_RELEASE: 0.7,
         DetailedRuleName.UNREVIEWED: 0.6,
-        DetailedRuleName.WORKFLOW_DRIFT: 1.0,
+        DetailedRuleName.WORKFLOW_DRIFT: 0.8,
         DetailedRuleName.OIDC_MISMATCH: 1.0,
         DetailedRuleName.UNEXPECTED_BUILDER: 0.9,
-        DetailedRuleName.TAG_IDENTITY_DRIFT: 0.7,
-    }
+        DetailedRuleName.TAG_IDENTITY_DRIFT: 0.6,
+    },
+    corroboration_bonus=10,
+    block_threshold=75,
+    minimum_corroborating_rules=2,
+    minimum_risk_band_rules=2,
 )
 
 
@@ -607,7 +611,7 @@ def _package_decision(
     results: Sequence[DetailedRuleResult],
     policy: DetailedScoringPolicy,
 ) -> PackageDecision:
-    """가중 점수와 독립 규칙 동시발동 수로 최종 설치 결정을 만든다.
+    """fail-closed 원칙으로 최종 설치 결정을 만든다.
 
     Args:
         score: 가중치와 corroboration을 반영한 최종 점수.
@@ -616,16 +620,11 @@ def _package_decision(
         policy: 차단 임계값과 최소 동시발동 수 정책.
 
     Returns:
-        단일 규칙 차단을 방지한 PASS/RISK/UNVERIFIABLE 결정.
+        RISK 밴드 하나 또는 검증 불가 규칙 하나를 보류하는 결정.
     """
-    if all(result.band is RuleBand.UNVERIFIABLE for result in results):
+    if any(result.band is RuleBand.UNVERIFIABLE for result in results):
         return PackageDecision.UNVERIFIABLE
-    risk_band_count = sum(result.band is RuleBand.RISK for result in activated)
-    if (
-        score >= policy.block_threshold
-        and len(activated) >= policy.minimum_corroborating_rules
-        and risk_band_count >= policy.minimum_risk_band_rules
-    ):
+    if any(result.band is RuleBand.RISK for result in activated):
         return PackageDecision.RISK
     return PackageDecision.PASS
 
@@ -648,12 +647,14 @@ def _decision_reason(
         감사 로그에 남길 최종 결정 근거 문자열.
     """
     active_names = [result.rule.value for result in results if result.band in {RuleBand.WARN, RuleBand.RISK}]
+    unverifiable_names = [result.rule.value for result in results if result.band is RuleBand.UNVERIFIABLE]
     if decision is PackageDecision.RISK:
-        return f"독립 위험 규칙 {', '.join(active_names)}가 동시 발동했고 RISK 밴드가 최소 {policy.minimum_risk_band_rules}개여서 {score}점 차단 임계값 {policy.block_threshold}점 이상입니다."
+        risk_names = [result.rule.value for result in results if result.band is RuleBand.RISK]
+        return f"fail-closed 정책: RISK 밴드 규칙 {', '.join(risk_names)}가 하나 이상 확인되어 설치를 차단합니다 (감사용 점수 {score}, 기준 {policy.block_threshold})."
     if decision is PackageDecision.UNVERIFIABLE:
-        return "6개 규칙 모두에 필요한 현재 증거나 과거 기준선이 없습니다."
+        return f"fail-closed 정책: 검증 불가 규칙 {', '.join(unverifiable_names)}의 현재 증거나 과거 기준선이 없어 UNVERIFIABLE (RISK)로 설치를 보류합니다."
     if active_names:
-        return f"위험 신호는 있으나 단일 규칙 차단을 방지하기 위해 PASS 처리했습니다: {', '.join(active_names)}"
+        return f"WARN 신호만 확인되어 설치를 허용합니다: {', '.join(active_names)}"
     return "평가 가능한 규칙에서 위험 신호가 확인되지 않았습니다."
 
 

@@ -1,0 +1,32 @@
+rules:
+  - id: rootkeepers.npm.dynamic-eval
+    message: Dynamic code execution API is present; review whether input can be attacker-controlled.
+    severity: WARNING
+    languages: [javascript, typescript]
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+
+  - id: rootkeepers.npm.child-process
+    message: Package code starts an operating-system process; verify the command and its inputs.
+    severity: WARNING
+    languages: [javascript, typescript]
+    pattern-either:
+      - pattern: require("child_process").$FUNC(...)
+      - pattern: require('child_process').$FUNC(...)
+
+  - id: rootkeepers.npm.vm-execution
+    message: Node VM code execution API is present; inspect the executed source and sandbox assumptions.
+    severity: WARNING
+    languages: [javascript, typescript]
+    pattern-either:
+      - pattern: require("vm").$FUNC(...)
+      - pattern: require('vm').$FUNC(...)
+
+  - id: rootkeepers.npm.base64-decoding
+    message: Base64 decoding is present; review nearby code for concealed executable payloads.
+    severity: INFO
+    languages: [javascript, typescript]
+    pattern-either:
+      - pattern: Buffer.from($VALUE, "base64")
+      - pattern: Buffer.from($VALUE, 'base64')

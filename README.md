@@ -2,7 +2,8 @@
 
 npm 패키지를 설치하기 **전에** 그 릴리스가 어디서 어떻게 만들어졌는지(계보)를
 npm·GitHub·Sigstore 세 곳에서 수집하고, 6개 공급망 규칙으로 채점해 위험하면
-설치를 막는다.
+설치를 막는다. 대시보드의 LangGraph 보조 분석은 스캔 이력·OSV·Semgrep·Groq
+무료 API 설명을 결합하지만, 이 핵심 판정이나 설치 게이트를 변경하지 않는다.
 
 `event-stream`(2018), `ua-parser-js`(2021) 같은 사고는 전부 평소와 똑같은
 `npm install` 한 번으로 성립했다. 그래서 이 도구는 "무엇이 나쁜가"가 아니라
@@ -27,6 +28,13 @@ trustgate up
 - Python 3.10+
 - Node.js / npm
 - GitHub Personal Access Token (fine-grained, "Public Repositories (read-only)")
+- 선택: Semgrep (`pip install -e ".[sast]"`) — npm 소스 2차 정적 분석
+- 기본: Groq Free tier API — 결제수단·모델 다운로드 없이 생성형 설명
+- 폴백: 키 누락·무료 한도 초과 시 로컬 증거 추론으로 자동 전환
+- 선택: `pip install -e ".[openai]"` — 명시적으로 고른 경우만 외부 생성형 설명
+
+AI 키 설정, 화면 사용, 모니터링, 실 API 테스트와 문제 해결은
+[AI 분석 사용설명서](docs/AI_ANALYSIS_GUIDE.md)에 순서대로 정리되어 있다.
 
 ## 설치
 
@@ -71,6 +79,7 @@ trustgate down      # 종료
 trustgate status    # 실행 상태
 trustgate scan lodash react@18.2.0   # 설치하지 않고 판정만
 trustgate install lodash             # 검사 후 통과하면 설치
+trustgate monitor --project ./my-app # 설치된 정확한 버전을 OSV로 점검
 ```
 
 `doctor`가 진단하는 것 — 대부분의 사고는 기능 버그가 아니라 환경 불일치다.
@@ -114,8 +123,8 @@ shim 없이 직접 검사만 하려면 `safe-npm install <패키지명>`.
 | 화면 | 하는 일 |
 |---|---|
 | **Dashboard** | 패키지 스캔 실행, 판정 요약과 최근 스캔 |
-| **Package Explorer** | 스캔한 패키지 목록. 행을 클릭하면 규칙별 점수·증거·리포트가 펼쳐진다 |
-| **Installed Packages** | `package.json`을 읽어 설치 버전 · 최신 버전 · 마지막 판정 · 쿨다운을 비교하고, 그 자리에서 검증 후 설치 |
+| **Package Explorer** | 스캔한 패키지 목록. 규칙·증거·리포트와 LangGraph AI 분석(이력/OSV/SAST/조치)이 펼쳐진다 |
+| **Installed Packages** | 설치 버전 · 최신 버전 · 마지막 판정 · 쿨다운 · 알려진 취약점을 비교하고, 수정 버전을 핵심 검증 후 설치 |
 | **History** | 스캔·설치·차단 이력과 일자별 활동 |
 
 Explorer와 Installed Packages는 이력 DB를 함께 읽는다. 그래서 **터미널에서
@@ -134,6 +143,28 @@ Explorer와 Installed Packages는 이력 DB를 함께 읽는다. 그래서 **터
 **콘솔이 꺼져 있어도 이력은 남는다.** 전송에 실패하면 CLI가 같은 DB에 직접
 기록한다. 콘솔과 터미널이 서로 다른 `TRUSTGATE_DB_PATH`를 보면 기록이 갈리는데,
 `trustgate doctor`가 그 경우를 경고한다.
+
+### LangGraph 보조 분석
+
+Explorer의 **AI 분석**은 다음 그래프를 실행한다.
+
+1. 현재 핵심 판정과 이전 스캔을 비교해 verdict/점수/수집기 회귀를 감시한다.
+2. OSV에 정확한 npm 버전을 조회하고, 여러 권고가 있으면 모든 영향 범위를
+   벗어나는 가장 높은 수정 버전을 제시한다.
+3. npm tarball의 registry host와 SRI 무결성을 확인하고, 경로 탈출·링크·압축 폭탄을
+   막은 임시 폴더에만 추출한다. 패키지는 설치하거나 실행하지 않는다.
+4. Semgrep과 lifecycle-script 검사를 통해 위험 API·설치 스크립트를 2차 검토한다.
+5. Groq Free tier의 `openai/gpt-oss-20b`가 정규화된 메타데이터로 한국어 구조화
+   설명·조치·신뢰도를 생성한다. 소스 원문은 전송하지 않으며, API를 사용할 수 없으면
+   로컬 증거 추론기로 자동 전환한다.
+
+LangGraph/OSV/Semgrep/설명 엔진 상태는 각각 표시된다. 어느 실패도 6규칙 결과를
+지우거나 설치를 허용하지 않는다. Ollama와 packJ 연동은 사용하지 않는다.
+
+Installed Packages의 OSV 스냅샷은 대시보드 실행 중 기본 60분마다 갱신된다.
+`TRUSTGATE_MONITOR_INTERVAL_MINUTES=0`이면 주기 점검을 끄며, 수동 버튼과
+`trustgate monitor`는 계속 사용할 수 있다. 조치는 자동 설치가 아니라 사용자가
+명시적으로 누른 뒤 기존 계보 검증에서 `PASS`한 수정 버전에만 적용된다.
 
 ---
 
@@ -170,16 +201,14 @@ Explorer와 Installed Packages는 이력 DB를 함께 읽는다. 그래서 **터
 |---|---|---|
 | `PASS` | 계보 검증 통과 | 진행 |
 | `RISK` | 규칙 위반 탐지 (예: OIDC mismatch) | **차단** |
-| `UNVERIFIABLE` | 쿨다운 미경과 또는 계보 수집 불가 | 경고만 출력, **진행** (의도된 정책) |
+| `UNVERIFIABLE (RISK)` | 쿨다운 미경과 또는 규칙 증거/기준선 부족 | **차단** |
 
 패키지 배포 후 7일간은 계보 수집을 건너뛰고 관찰 기간으로 처리한다
 (`COOLDOWN_DAYS`, [cooldown.py](src/rootkeepers/interceptor/cooldown.py)).
 
-`UNVERIFIABLE`을 차단하지 않는 건 의도된 설계다. 규칙 엔진은 위험 신호 하나만으로
-차단하지 않고 여러 규칙이 동시에 RISK 밴드에 걸려야 차단한다
-(`detailed_rule_engine.py`의 `minimum_corroborating_rules`/`minimum_risk_band_rules`).
-"증거가 없다"를 "위험하다"와 같은 강도로 차단하면 이 원칙에 어긋나고, 특히 쿨다운은
-모든 신규 버전을 배포 후 7일간 설치 불가능하게 만들어 실사용성을 크게 해친다.
+설치 게이트는 fail-closed다. 규칙 하나라도 `RISK` 밴드이거나 하나라도 검증할 수
+없으면 설치를 막는다. 75점과 2/2 corroboration 값은 대시보드 우선순위와 감사용
+메타데이터이며 설치 허용 조건이 아니다. AI/SAST/OSV 결과도 이 결정을 덮어쓰지 않는다.
 
 ---
 
@@ -219,6 +248,7 @@ Collector/
 │
 └── src/rootkeepers/                            ── 파이썬 패키지 전부
     ├── cli.py               `trustgate` 진입점 — 실행·정지·진단
+    ├── analysis/            LangGraph · Groq 무료 API/로컬 폴백 · OSV · SAST
     ├── paths.py             저장소 경로 · `.env` 로딩 (세 패키지가 모두 씀)
     │
     ├── collectors/          ── 계보 수집 (Track A/B/C)

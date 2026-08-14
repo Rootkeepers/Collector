@@ -81,13 +81,15 @@
           <div class="scan-form">
             <input type="text" id="installed-project" class="mono" placeholder="예: C:/Users/me/my-project">
             <button class="btn primary" id="installed-load-btn">불러오기</button>
+            <button class="btn" id="installed-monitor-btn" disabled>취약 버전 모니터링</button>
           </div>
           <div id="installed-status-area"></div>
+          <div id="installed-monitor-status"></div>
         </div>
         <div class="panel" id="installed-panel" style="display:none;">
           <div class="table-wrap">
             <table class="pkg-table">
-              <thead><tr><th>Package</th><th>Installed</th><th>Latest</th><th>마지막 판정</th><th>Cooldown</th><th>Action</th></tr></thead>
+              <thead><tr><th>Package</th><th>Installed</th><th>Latest</th><th>알려진 취약점</th><th>마지막 판정</th><th>Cooldown</th><th>Action</th></tr></thead>
               <tbody id="installed-tbody"></tbody>
             </table>
           </div>
@@ -118,7 +120,7 @@
               <option value="">모든 판정</option>
               <option value="PASS">PASS</option>
               <option value="RISK">RISK</option>
-              <option value="UNVERIFIABLE">UNVERIFIABLE</option>
+              <option value="UNVERIFIABLE (RISK)">UNVERIFIABLE (RISK)</option>
             </select>
             <span class="filter-count" id="h-count"></span>
           </div>
