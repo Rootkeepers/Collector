@@ -4,13 +4,14 @@
 (function () {
   const RULES = ['orphan_release','unreviewed','workflow_drift','oidc_mismatch','unexpected_builder','tag_identity_drift'];
   const RULE_LABEL = { orphan_release: 'Orphan Release', unreviewed: 'Unreviewed', workflow_drift: 'Workflow Drift', oidc_mismatch: 'OIDC Mismatch', unexpected_builder: 'Unexpected Builder', tag_identity_drift: 'Tag/Identity Drift' };
-  const WEIGHTS = { orphan_release: 0.7, unreviewed: 0.6, workflow_drift: 1.0, oidc_mismatch: 1.0, unexpected_builder: 0.9, tag_identity_drift: 0.7 };
-  const BLOCK_THRESHOLD = 90, MIN_CORROBORATING = 3, MIN_RISK_BAND = 3;
+  const WEIGHTS = { orphan_release: 0.7, unreviewed: 0.6, workflow_drift: 0.8, oidc_mismatch: 1.0, unexpected_builder: 0.9, tag_identity_drift: 0.6 };
+  const BLOCK_THRESHOLD = 75, MIN_CORROBORATING = 2, MIN_RISK_BAND = 2;
 
   function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
   function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function fmtSpec(name, version) { return version ? `${name}@${version}` : `${name} (버전 미확정)`; }
   function safeId(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+  function isUnverifiable(verdict) { return String(verdict || '').startsWith('UNVERIFIABLE'); }
 
   let liveResults = [];
   let selected = null;
@@ -190,7 +191,7 @@
     const total = liveResults.length;
     const allowed = liveResults.filter(p => p.decision.verdict === 'PASS').length;
     const blocked = liveResults.filter(p => p.decision.verdict === 'RISK').length;
-    const unverifiable = liveResults.filter(p => p.decision.verdict === 'UNVERIFIABLE').length;
+    const unverifiable = liveResults.filter(p => isUnverifiable(p.decision.verdict)).length;
     // 이력에서 되살린 행은 소요 시간이 없을 수 있다. 그대로 평균에 넣으면
     // NaN이 되어 스파크라인 path가 깨지므로, 측정값이 있는 것만 집계한다.
     const timed = liveResults.filter(p => p.timing && Number.isFinite(p.timing.total));
@@ -263,7 +264,7 @@
 
   function riskGaugeSvg(score, verdict) {
     const r = 42, c = 2 * Math.PI * r;
-    const color = verdict === 'RISK' ? 'var(--critical)' : verdict === 'UNVERIFIABLE' ? 'var(--neutral)' : score > 0 ? 'var(--warning)' : 'var(--good)';
+    const color = verdict === 'RISK' ? 'var(--critical)' : isUnverifiable(verdict) ? 'var(--neutral)' : score > 0 ? 'var(--warning)' : 'var(--good)';
     const offset = c * (1 - score / 100);
     return `
       <svg width="104" height="104" viewBox="0 0 104 104">
@@ -286,11 +287,10 @@
     { id: 'rules', label: '규칙 점수' },
     { id: 'evidence', label: '증거 JSON' },
     { id: 'report', label: '리포트' },
-    { id: 'ai', label: 'AI 요약' },
+    { id: 'ai', label: 'AI 분석' },
   ];
 
-  /* 패키지별 AI 요약 상태. 탭을 오가도 결과가 날아가지 않게 보관한다.
-   * key -> { status: 'idle'|'loading'|'done'|'error'|'unavailable', text, error } */
+  /* 패키지별 LangGraph 분석 상태. 탭을 오가도 결과가 날아가지 않게 보관한다. */
   const aiSummaries = {};
   const aiKey = (p) => `${p.name}@${p.version || ''}`;
 
@@ -299,13 +299,14 @@
     aiSummaries[key] = { status: 'loading' };
     renderDetail(containerId);
     try {
-      const res = await fetch('/api/ai-summary', {
+      const res = await fetch('/api/ai-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
         body: JSON.stringify({
-          package: p.name, version: p.version,
+          package: { name: p.name, version: p.version },
           verdict: p.decision.verdict, score: p.decision.score, reason: p.decision.reason,
-          rules: p.rules, track_statuses: p.trackStatuses,
+          rules: Object.entries(p.rules).map(([id, rule]) => ({ id, ...rule })),
+          track_statuses: p.trackStatuses,
         }),
       });
       // 서버에 아직 엔드포인트가 없는 경우와 실제 오류를 구분한다.
@@ -313,8 +314,8 @@
         aiSummaries[key] = { status: 'unavailable' };
       } else {
         const data = await res.json();
-        aiSummaries[key] = (data.ok && data.summary)
-          ? { status: 'done', text: data.summary }
+        aiSummaries[key] = (data.ok && data.analysis)
+          ? { status: 'done', data: data.analysis }
           : { status: 'error', error: data.error || '요약을 받지 못했습니다.' };
       }
     } catch (err) {
@@ -330,10 +331,48 @@
     if (state.status === 'loading') {
       panel = `<div class="ai-status"><span class="spinner"></span><span>요약을 생성하는 중…</span></div>`;
     } else if (state.status === 'done') {
-      panel = `<div class="ai-summary">${escapeHtml(state.text).replace(/\n/g, '<br>')}</div>`;
+      const a = state.data;
+      const explanation = a.explanation || a.llm || {};
+      const summary = explanation.status === 'AVAILABLE' ? explanation.summary : (a.synthesis || {}).summary;
+      const headline = explanation.status === 'AVAILABLE' ? explanation.headline : (a.synthesis || {}).headline;
+      const monitoring = a.monitoring || {};
+      const osv = a.vulnerabilities || {};
+      const sast = a.sast || {};
+      const actions = explanation.status === 'AVAILABLE' ? explanation.recommended_actions : (a.synthesis || {}).recommended_actions;
+      const vulns = (osv.vulnerabilities || []).slice(0, 8).map(v => `
+        <li><b>${escapeHtml(v.id || 'OSV')}</b> · ${escapeHtml(v.severity || 'UNKNOWN')}<br>
+        <span>${escapeHtml(v.summary || '')}</span>
+        ${v.fixed_versions?.length ? `<div class="mono muted">fixed: ${escapeHtml(v.fixed_versions.join(', '))}</div>` : ''}</li>`).join('');
+      const sastRows = (sast.findings || []).slice(0, 12).map(f => `
+        <li><b>${escapeHtml(f.rule_id || 'SAST')}</b> · ${escapeHtml(f.severity || 'INFO')}
+        <div class="mono muted">${escapeHtml(f.path || '')}${f.line ? ':' + f.line : ''}</div>
+        <span>${escapeHtml(f.message || '')}</span></li>`).join('');
+      panel = `
+        <div class="ai-summary"><b>${escapeHtml(headline || '보조 분석')}</b><br>${escapeHtml(summary || '').replace(/\n/g, '<br>')}</div>
+        <div class="ai-grid">
+          <section class="ai-card"><h4>변화 모니터링 <span class="analysis-badge ${monitoring.status || ''}">${escapeHtml(monitoring.status || 'UNKNOWN')}</span></h4>
+            <p>${escapeHtml(monitoring.message || '')}</p>
+            ${monitoring.score_delta != null ? `<p class="mono">score delta: ${monitoring.score_delta > 0 ? '+' : ''}${monitoring.score_delta}</p>` : ''}
+            ${monitoring.anomaly_score != null ? `<p class="mono">local anomaly: ${monitoring.anomaly_score}/100</p>` : ''}
+          </section>
+          <section class="ai-card"><h4>OSV 취약 버전 <span class="analysis-badge ${osv.status || ''}">${escapeHtml(osv.status || 'UNKNOWN')}</span></h4>
+            <p>${osv.recommended_version ? `권장 수정 버전: <b class="mono">${escapeHtml(osv.recommended_version)}</b>` : escapeHtml(osv.action || '')}</p>
+            ${vulns ? `<ul class="analysis-list">${vulns}</ul>` : '<p class="muted">알려진 취약점이 확인되지 않았습니다.</p>'}
+          </section>
+          <section class="ai-card"><h4>소스/SAST 2차 검증 <span class="analysis-badge ${sast.status || ''}">${escapeHtml(sast.status || 'UNKNOWN')}</span></h4>
+            <p>npm 무결성: ${escapeHtml(sast.artifact?.integrity?.status || 'UNKNOWN')} · 신호 ${sast.finding_count || 0}건</p>
+            ${sastRows ? `<ul class="analysis-list">${sastRows}</ul>` : '<p class="muted">표시할 SAST 신호가 없습니다.</p>'}
+          </section>
+          <section class="ai-card"><h4>권장 조치</h4>
+            <ol class="analysis-list">${(actions || []).map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ol>
+            <p class="muted">설명 엔진: ${escapeHtml((explanation.provider || 'none').toUpperCase())} · ${escapeHtml(explanation.status || 'DISABLED')}${explanation.cost ? ' · ' + escapeHtml(explanation.cost) : ''}</p>
+            ${explanation.model ? `<p class="mono muted">${escapeHtml(explanation.model)}</p>` : ''}
+            ${explanation.fallback_from ? `<p class="muted">${escapeHtml(explanation.fallback_from.toUpperCase())} API 폴백: ${escapeHtml(explanation.fallback_reason || 'unavailable')}</p>` : ''}
+          </section>
+        </div>`;
     } else if (state.status === 'unavailable') {
-      panel = `<div class="ai-empty">이 서버에는 요약 기능이 아직 연결되지 않았습니다.
-               <span class="mono">POST /api/ai-summary</span> 가 붙으면 이 화면이 그대로 동작합니다.</div>`;
+        panel = `<div class="ai-empty">이 서버에는 통합 분석 기능이 연결되지 않았습니다.
+               <span class="mono">POST /api/ai-analysis</span> 엔드포인트를 확인하세요.</div>`;
     } else if (state.status === 'error') {
       panel = `<div class="scan-error"><b>요약 실패</b> — ${escapeHtml(state.error)}</div>`;
     } else {
@@ -341,14 +380,14 @@
     }
 
     body.innerHTML = `
-      <p class="subhead">이 패키지의 판정과 규칙 결과를 문장으로 요약한다.</p>
+      <p class="subhead">LangGraph가 이력·OSV·Semgrep을 수집하고 무료 Groq API가 설명한다. 키·한도 문제가 있으면 로컬 증거 추론으로 자동 전환한다.</p>
       <div class="scan-form">
         <button class="btn primary" id="ai-run" ${state.status === 'loading' ? 'disabled' : ''}>
-          ${state.status === 'done' ? '다시 생성' : '요약 생성'}
+          ${state.status === 'done' ? '다시 분석' : '통합 분석 실행'}
         </button>
       </div>
       ${panel}
-      <p class="ai-caveat">생성된 문장은 참고용이다. 설치 여부를 가르는 근거는
+      <p class="ai-caveat">AI/SAST/OSV 결과는 참고용이다. 설치 여부를 가르는 근거는
         <b>규칙 점수</b>와 <b>증거 JSON</b> 탭의 원본 값이다.</p>
     `;
     body.querySelector('#ai-run').addEventListener('click', () => requestAiSummary(p, containerId));
@@ -401,7 +440,7 @@
           ${p.cooldown ? `<div class="track-chips"><span class="cooldown-badge ${p.cooldown.passed ? 'passed' : 'holding'}">${p.cooldown.passed ? '쿨다운 통과' : `쿨다운 중 · ${p.cooldown.remain_days != null ? p.cooldown.remain_days.toFixed(1) : '?'}일 남음`}</span></div>` : ''}
           ${p.timing && Number.isFinite(p.timing.total) ? `<div class="track-chips"><span class="track-chip">총 소요 ${p.timing.total}ms</span><span class="track-chip">npm ${p.timing.npm}ms</span><span class="track-chip">github ${p.timing.github}ms</span><span class="track-chip">sigstore ${p.timing.sigstore}ms</span></div>` : ''}
         </div>
-        <div class="gauge-wrap">${riskGaugeSvg(p.decision.score, p.decision.verdict)}<div><div class="verdict-pill ${p.decision.verdict}">${p.decision.verdict}</div><div class="gauge-label">차단 임계값 ${BLOCK_THRESHOLD}</div></div></div>
+        <div class="gauge-wrap">${riskGaugeSvg(p.decision.score, p.decision.verdict)}<div><div class="verdict-pill ${p.decision.verdict}">${p.decision.verdict}</div><div class="gauge-label">보고 기준 ${BLOCK_THRESHOLD} · 실제 게이트 fail-closed</div></div></div>
       </div>
     `;
   }
@@ -758,17 +797,36 @@
     return `<span class="cooldown-badge holding">쿨다운 중 · ${remain != null ? remain.toFixed(1) : '?'}일 남음</span>`;
   }
 
+  function vulnerabilityBadgeHtml(row) {
+    const v = row.vulnerability;
+    if (!v) return '<span class="analysis-badge UNKNOWN">미확인</span>';
+    if (v.status === 'VULNERABLE') {
+      const fixed = v.recommended_version ? ` → ${escapeHtml(v.recommended_version)}` : '';
+      return `<span class="analysis-badge VULNERABLE">${v.count || 0}건${fixed}</span>`;
+    }
+    if (v.status === 'CLEAN') return '<span class="analysis-badge CLEAN">0건</span>';
+    return `<span class="analysis-badge ERROR">${escapeHtml(v.status || 'UNKNOWN')}</span>`;
+  }
+
+  function targetVersion(row) {
+    return row.vulnerability?.recommended_version || row.latest_version;
+  }
+
   function actionCellHtml(row, state) {
-    if (row.up_to_date) return `<span style="color:var(--muted); font-size:12px;">조치 불필요</span>`;
-    if (!row.cooldown) return `<span style="color:var(--muted); font-size:12px;">—</span>`;
+    const needsRemediation = row.vulnerability?.status === 'VULNERABLE';
+    const target = targetVersion(row);
+    if (needsRemediation && !target) return `<span class="muted">공식 완화책 검토</span>`;
+    if (!needsRemediation && row.up_to_date) return `<span style="color:var(--muted); font-size:12px;">조치 불필요</span>`;
+    if (!needsRemediation && !row.cooldown) return `<span style="color:var(--muted); font-size:12px;">—</span>`;
     const s = state.status;
     if (s === 'checking') return `<div class="scan-status"><span class="spinner"></span><span>검증 중…</span></div>`;
     if (s === 'installing') return `<div class="scan-status"><span class="spinner"></span><span>npm install 실행 중… (최대 3분)</span></div>`;
-    if (s === 'approved') return `<div class="install-result approved">${escapeHtml(state.message)}</div><button class="btn small primary" data-action="install" data-name="${escapeHtml(row.name)}" style="margin-top:6px;">지금 설치</button>`;
+    if (s === 'approved') return `<div class="install-result approved">${escapeHtml(state.message)}</div><button class="btn small primary" data-action="install" data-name="${escapeHtml(row.name)}" style="margin-top:6px;">${escapeHtml(target)} 설치</button>`;
     if (s === 'blocked') return `<div class="install-result blocked">${escapeHtml(state.message)}</div>`;
     if (s === 'success') return `<div class="install-result success">설치 완료 ✓ (exit 0)${state.stdout ? `<pre class="mono">${escapeHtml(state.stdout.slice(-500))}</pre>` : ''}</div>`;
     if (s === 'fail') return `<div class="install-result fail">설치 실패${state.returncode != null ? ` (exit ${state.returncode})` : ''}${state.stderr ? `<pre class="mono">${escapeHtml(state.stderr.slice(-500))}</pre>` : ''}</div>`;
     if (s === 'error') return `<div class="install-result fail">오류: ${escapeHtml(state.error || '알 수 없는 오류')}</div>`;
+    if (needsRemediation) return `<button class="btn small primary" data-action="early_approve" data-name="${escapeHtml(row.name)}">수정 버전 검증</button>`;
     // idle
     if (row.cooldown.passed) return `<button class="btn small" data-action="install" data-name="${escapeHtml(row.name)}">검증 후 설치</button>`;
     return `<button class="btn small" data-action="early_approve" data-name="${escapeHtml(row.name)}">조기 승인 확인</button>`;
@@ -791,6 +849,7 @@
         <td class="pkg-name-cell">${escapeHtml(row.name)}</td>
         <td class="mono">${row.installed_version || '—'}</td>
         <td class="mono">${row.latest_version || '—'}</td>
+        <td>${vulnerabilityBadgeHtml(row)}</td>
         <td>${lastScanHtml(row)}</td>
         <td>${cooldownBadgeHtml(row)}</td>
         <td><div class="install-cell" id="install-cell-${safeId(row.name)}">${actionCellHtml(row, state)}</div></td>
@@ -822,7 +881,7 @@
       try {
         const res = await fetch('/api/early_approve', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ package: name, installed_version: row.installed_version, candidate_version: row.latest_version }),
+          body: JSON.stringify({ package: name, installed_version: row.installed_version, candidate_version: targetVersion(row) }),
         });
         const data = await res.json();
         if (!data.ok) installedActionState[name] = { status: 'error', error: data.error || '알 수 없는 오류' };
@@ -839,7 +898,7 @@
         const project = document.getElementById('installed-project').value.trim();
         const res = await fetch('/api/install', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ package: name, version: row.latest_version, project }),
+          body: JSON.stringify({ package: name, version: targetVersion(row), project }),
         });
         const data = await res.json();
         if (data.blocked) installedActionState[name] = { status: 'blocked', message: data.message };
@@ -881,7 +940,9 @@
       installedActionState = {};
       if (!project) projectInput.placeholder = data.project;
       document.getElementById('installed-panel').style.display = 'block';
+      document.getElementById('installed-monitor-btn').disabled = false;
       renderInstalledTable();
+      loadMonitorSnapshot(project);
     } catch (err) {
       if (err.name === 'AbortError') return;
       statusArea.innerHTML = `<div class="scan-error"><b>서버에 연결할 수 없음</b> — ${escapeHtml(String(err))}</div>`;
@@ -890,6 +951,42 @@
     }
   }
   document.getElementById('installed-load-btn').addEventListener('click', loadInstalled);
+
+  function applyMonitorSnapshot(monitor) {
+    if (!monitor || !Array.isArray(monitor.packages)) return;
+    const byName = new Map(monitor.packages.map(row => [row.name, row]));
+    installedRows.forEach(row => { row.vulnerability = byName.get(row.name) || null; });
+    renderInstalledTable();
+    const area = document.getElementById('installed-monitor-status');
+    area.innerHTML = `<div class="monitor-summary"><b>${escapeHtml(monitor.status || 'UNKNOWN')}</b> · ${monitor.package_count || 0}개 점검 · 취약 ${monitor.vulnerable_count || 0}개 · ${escapeHtml(new Date(monitor.checked_at).toLocaleString('ko-KR'))}</div>`;
+  }
+
+  async function loadMonitorSnapshot(project) {
+    try {
+      const q = new URLSearchParams(); if (project) q.set('project', project);
+      const data = await fetch('/api/monitor?' + q.toString()).then(r => r.json());
+      if (data.ok && data.monitor) applyMonitorSnapshot(data.monitor);
+    } catch { /* 저장된 스냅샷이 없어도 설치 목록은 그대로 쓴다 */ }
+  }
+
+  async function runInstalledMonitor() {
+    const btn = document.getElementById('installed-monitor-btn');
+    const area = document.getElementById('installed-monitor-status');
+    btn.disabled = true;
+    area.innerHTML = '<div class="scan-status"><span class="spinner"></span><span>OSV에서 설치 버전을 모니터링 중…</span></div>';
+    try {
+      const project = document.getElementById('installed-project').value.trim();
+      const data = await fetch('/api/monitor', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project }),
+      }).then(r => r.json());
+      if (data.packages) applyMonitorSnapshot(data);
+      else area.innerHTML = `<div class="scan-error"><b>모니터링 실패</b> — ${escapeHtml(data.error || data.reason || '알 수 없는 오류')}</div>`;
+    } catch (err) {
+      area.innerHTML = `<div class="scan-error"><b>모니터링 실패</b> — ${escapeHtml(String(err))}</div>`;
+    } finally { btn.disabled = false; }
+  }
+  document.getElementById('installed-monitor-btn').addEventListener('click', runInstalledMonitor);
 
   /* =========================================================
    * Sample scenarios table

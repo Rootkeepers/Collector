@@ -22,6 +22,7 @@ import mimetypes
 import os
 import subprocess
 import sys
+import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -44,14 +45,36 @@ mimetypes.add_type("text/css", ".css")
 from rootkeepers.interceptor.cooldown import check_cooldown, get_latest_version  # noqa: E402
 from rootkeepers.interceptor.cooldown_gate import read_baseline  # noqa: E402
 from rootkeepers.interceptor.safe_npm import find_real_npm, CollectorError  # noqa: E402
+from rootkeepers.analysis.source_sast import semgrep_available  # noqa: E402
 
 DEFAULT_PROJECT_DIR = project_dir()
 INSTALL_TIMEOUT_SEC = 180
+
+
+def _semgrep_available() -> bool:
+    return semgrep_available()
+
+
+def _monitor_interval_minutes() -> float:
+    try:
+        return max(0.0, float(os.getenv("TRUSTGATE_MONITOR_INTERVAL_MINUTES", "60")))
+    except ValueError:
+        return 60.0
+
+
+def _periodic_monitor(stop_event: threading.Event, interval_minutes: float) -> None:
+    """Persist read-only OSV snapshots periodically; never install or modify packages."""
+    while not stop_event.wait(interval_minutes * 60):
+        try:
+            store.record_monitor(monitor_project(DEFAULT_PROJECT_DIR))
+        except Exception as exc:  # noqa: BLE001 - background monitoring is best effort
+            sys.stderr.write(f"[monitor] 주기 점검 실패 (다음 주기에 재시도): {exc}\n")
 
 # 리포팅·스캔 로직은 CLI 래퍼(safe-npm)와 공유한다 — 같은 패키지에 대해
 # 터미널과 대시보드가 다른 판정을 내놓지 않도록 하기 위함이다.
 from rootkeepers.dashboard import background, store  # noqa: E402
 from rootkeepers.interceptor.scanning import scan_package  # noqa: E402
+from rootkeepers.analysis import monitor_project, run_ai_analysis  # noqa: E402
 
 
 def _pipeline_nodes(package_name, scan) -> list[dict]:
@@ -132,7 +155,7 @@ def _pipeline_nodes(package_name, scan) -> list[dict]:
             "status": (
                 "RISK" if decision["verdict"] == "RISK"
                 else "WARN" if activated
-                else "UNVERIFIABLE" if decision["verdict"] == "UNVERIFIABLE"
+                else "UNVERIFIABLE" if decision["verdict"].startswith("UNVERIFIABLE")
                 else "PASS"
             ),
             "detail": {
@@ -233,17 +256,17 @@ def list_installed(project_dir: Path) -> dict:
 
 
 def run_install(package_name: str, version: str, project_dir: Path) -> dict:
-    """설치 직전 후보 버전을 실제 규칙 엔진으로 재검증하고, RISK가 아니면
+    """설치 직전 후보 버전을 실제 규칙 엔진으로 재검증하고, PASS일 때만
     실제 npm install을 실행한다. 쿨다운 통과 여부와 무관하게 이 마지막
     검증은 항상 수행한다 (조기 승인 경로도 여기로 들어온다).
     """
     scan = run_scan(package_name, version)  # already fires its own "scan" report event
-    if scan["verdict"] == "RISK":
+    if scan["verdict"] != "PASS":
         _record("block", scan, extra={"project": str(project_dir)})
         return {
             "ok": False, "blocked": True,
             "verdict": scan["verdict"], "score": scan["score"], "reason": scan["reason"],
-            "message": "RISK 판정으로 설치가 차단되었습니다.",
+            "message": f"{scan['verdict']} 판정으로 설치가 차단되었습니다. PASS만 설치할 수 있습니다.",
         }
 
     try:
@@ -274,28 +297,27 @@ def run_early_approve(package_name: str, installed_version: str, candidate_versi
     그대로 재현한다 — 단, verify()로 가짜 True 대신 실제 규칙 엔진 결과를 쓴다.
 
     쿨다운이 아직 안 지났어도, 현재 설치된 버전(기준선)과 신버전 후보가
-    둘 다 RISK가 아니면 조기 승인 — 기준선 자체가 RISK면 전체 차단, 신버전만
-    RISK면 조기 승인 거부(쿨다운 유지)로 gate_package()와 동일하게 갈린다.
+    둘 다 PASS일 때만 조기 승인한다. 보조 AI 분석은 이 결정을 바꾸지 않는다.
     """
     baseline_scan = run_scan(package_name, installed_version) if installed_version else None
-    if baseline_scan is not None and baseline_scan["verdict"] == "RISK":
+    if baseline_scan is not None and baseline_scan["verdict"] != "PASS":
         return {
             "ok": True, "approved": False, "stage": "baseline",
-            "message": f"설치된 버전({installed_version}) 자체가 RISK 판정 — 기준선을 신뢰할 수 없어 전체 차단합니다.",
+            "message": f"설치된 버전({installed_version})이 {baseline_scan['verdict']} — PASS 기준선이 아니므로 차단합니다.",
             "baseline_scan": baseline_scan, "candidate_scan": None,
         }
 
     candidate_scan = run_scan(package_name, candidate_version)
-    if candidate_scan["verdict"] == "RISK":
+    if candidate_scan["verdict"] != "PASS":
         return {
             "ok": True, "approved": False, "stage": "candidate",
-            "message": "신버전이 RISK 판정 — 조기 승인 거부, 쿨다운을 유지합니다.",
+            "message": f"신버전이 {candidate_scan['verdict']} 판정 — 조기 승인 거부, 쿨다운을 유지합니다.",
             "baseline_scan": baseline_scan, "candidate_scan": candidate_scan,
         }
 
     return {
         "ok": True, "approved": True, "stage": "both",
-        "message": "기준선·신버전 모두 RISK가 아니므로 쿨다운 잔여 기간과 무관하게 조기 승인합니다.",
+        "message": "기준선·신버전 모두 PASS이므로 쿨다운 잔여 기간과 무관하게 조기 승인합니다.",
         "baseline_scan": baseline_scan, "candidate_scan": candidate_scan,
     }
 
@@ -357,11 +379,29 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/health":
+            ai_provider = os.getenv("TRUSTGATE_AI_PROVIDER", "groq").strip().lower() or "groq"
             self._send_json(200, {
                 "ok": True,
                 "github_token_configured": bool(os.getenv("GITHUB_TOKEN")),
                 "default_project": str(DEFAULT_PROJECT_DIR),
                 "db_path": str(store.DB_PATH),
+                "ai_configured": (
+                    ai_provider in {"local", "free"}
+                    or (ai_provider == "groq" and bool(os.getenv("GROQ_API_KEY")))
+                    or (ai_provider == "openai" and bool(os.getenv("OPENAI_API_KEY")))
+                ),
+                "ai_api_configured": (
+                    (ai_provider == "groq" and bool(os.getenv("GROQ_API_KEY")))
+                    or (ai_provider == "openai" and bool(os.getenv("OPENAI_API_KEY")))
+                ),
+                "ai_provider": ai_provider,
+                "ai_free": ai_provider in {"local", "free", "groq"},
+                "ai_model": (
+                    os.getenv("TRUSTGATE_GROQ_MODEL", "openai/gpt-oss-20b")
+                    if ai_provider == "groq" else os.getenv("TRUSTGATE_AI_MODEL", "gpt-5.4-nano")
+                ),
+                "semgrep_available": _semgrep_available(),
+                "monitor_interval_minutes": _monitor_interval_minutes(),
             })
             return
 
@@ -403,6 +443,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": False, "error": f"{exc.__class__.__name__}: {exc}"})
             return
 
+        if parsed.path == "/api/monitor":
+            qs = parse_qs(parsed.query)
+            project = (qs.get("project") or [""])[0].strip()
+            project_path = str(Path(project) if project else DEFAULT_PROJECT_DIR)
+            self._send_json(200, {"ok": True, "monitor": store.latest_monitor(project_path)})
+            return
+
         # static files — dashboard/static/ 밖은 절대 내보내지 않는다
         rel = parsed.path.lstrip("/") or "console.html"
         file_path = (STATIC_DIR / rel).resolve()
@@ -422,6 +469,51 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         parsed = urlparse(self.path)
+
+        if parsed.path in {"/api/ai-analysis", "/api/ai-summary"}:
+            try:
+                payload = self._read_json_body()
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "잘못된 JSON body"})
+                return
+            package = payload.get("package") or {}
+            if isinstance(package, str):
+                package = {"name": package, "version": payload.get("version")}
+            scan = {
+                "package": package,
+                "verdict": payload.get("verdict"), "score": payload.get("score"),
+                "reason": payload.get("reason"), "rules": payload.get("rules") or [],
+                "track_statuses": payload.get("track_statuses") or {},
+            }
+            if not package.get("name") or not package.get("version") or not scan.get("verdict"):
+                self._send_json(400, {"ok": False, "error": "package(name/version)와 verdict가 필요합니다."})
+                return
+            try:
+                analysis = run_ai_analysis(scan, store.history(limit=100, q=package["name"]))
+                # /api/ai-summary의 summary 필드는 이전 프런트와의 호환을 유지한다.
+                summary = (analysis.get("llm") or {}).get("summary") or analysis["synthesis"]["summary"]
+                self._send_json(200, {"ok": True, "summary": summary, "analysis": analysis})
+            except Exception as exc:  # noqa: BLE001 - optional analysis is failure-isolated
+                traceback.print_exc()
+                self._send_json(200, {"ok": False, "error": f"{exc.__class__.__name__}: {exc}"})
+            return
+
+        if parsed.path == "/api/monitor":
+            try:
+                payload = self._read_json_body()
+            except Exception:
+                self._send_json(400, {"ok": False, "error": "잘못된 JSON body"})
+                return
+            project = (payload.get("project") or "").strip()
+            project_dir = Path(project) if project else DEFAULT_PROJECT_DIR
+            try:
+                result = monitor_project(project_dir)
+                store.record_monitor(result)
+                self._send_json(200, result)
+            except Exception as exc:  # noqa: BLE001
+                traceback.print_exc()
+                self._send_json(200, {"ok": False, "status": "ERROR", "error": f"{exc.__class__.__name__}: {exc}"})
+            return
 
         if parsed.path == "/api/early_approve":
             try:
@@ -540,6 +632,15 @@ def main():
         print("[경고] GITHUB_TOKEN이 설정되지 않았습니다 — GitHub 트랙 수집이 실패합니다.", file=sys.stderr)
 
     httpd = ConsoleHTTPServer((args.host, args.port), Handler)
+    monitor_stop = threading.Event()
+    monitor_interval = _monitor_interval_minutes()
+    monitor_thread = None
+    if monitor_interval > 0:
+        monitor_thread = threading.Thread(
+            target=_periodic_monitor, args=(monitor_stop, monitor_interval),
+            name="trustgate-osv-monitor", daemon=True,
+        )
+        monitor_thread.start()
     print(f"TrustGate Scan Console → http://{args.host}:{args.port}")
     print(f"  기본 프로젝트: {DEFAULT_PROJECT_DIR}")
     if args.host == "0.0.0.0":  # noqa: S104 — 컨테이너에서는 의도된 설정
@@ -553,6 +654,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        monitor_stop.set()
         background.clear_record()
     return 0
 

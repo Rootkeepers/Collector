@@ -78,6 +78,18 @@ CREATE TABLE IF NOT EXISTS inventory (
 );
 CREATE INDEX IF NOT EXISTS idx_inv_pkg ON inventory(package_name);
 CREATE INDEX IF NOT EXISTS idx_inv_proj ON inventory(project_key);
+
+-- 설치 의존성 OSV 모니터링 스냅샷. 자동 조치가 아니라 관찰/권고 이력이다.
+CREATE TABLE IF NOT EXISTS monitor_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT,
+    status TEXT,
+    vulnerable_count INTEGER,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_monitor_project ON monitor_runs(project);
+CREATE INDEX IF NOT EXISTS idx_monitor_created ON monitor_runs(created_at);
 """)
 _conn.commit()
 
@@ -125,6 +137,30 @@ def save_inventory(project: str, project_key: str, packages: list) -> int:
             """INSERT INTO inventory (project_key, project, package_name, version, spec, dev, updated_at)
                VALUES (?,?,?,?,?,?,?)""", rows)
     return len(rows)
+
+
+@_with_db
+def record_monitor(result: dict[str, Any]) -> None:
+    """Persist one advisory dependency-monitor snapshot for dashboard comparison."""
+    _conn.execute(
+        """INSERT INTO monitor_runs
+           (project, status, vulnerable_count, result_json, created_at)
+           VALUES (?,?,?,?,?)""",
+        (result.get("project"), result.get("status"), int(result.get("vulnerable_count") or 0),
+         json.dumps(result, ensure_ascii=False), result.get("checked_at") or _now()),
+    )
+    _conn.commit()
+
+
+@_with_db
+def latest_monitor(project: str = "") -> dict[str, Any] | None:
+    if project:
+        row = _conn.execute(
+            "SELECT result_json FROM monitor_runs WHERE project=? ORDER BY id DESC LIMIT 1", (project,)
+        ).fetchone()
+    else:
+        row = _conn.execute("SELECT result_json FROM monitor_runs ORDER BY id DESC LIMIT 1").fetchone()
+    return json.loads(row["result_json"]) if row else None
 
 
 def _row_to_event(r: sqlite3.Row) -> dict:
@@ -189,7 +225,7 @@ def stats() -> dict[str, Any]:
         "SELECT COUNT(*) c FROM events WHERE datetime(created_at) >= datetime('now','-1 day')"
     ).fetchone()["c"]
     scans = sum(by_verdict.values())
-    verifiable = scans - by_verdict.get("UNVERIFIABLE", 0)
+    verifiable = scans - by_verdict.get("UNVERIFIABLE", 0) - by_verdict.get("UNVERIFIABLE (RISK)", 0)
     return {
         "total_events": total, "by_verdict": by_verdict, "blocked": blocked,
         "installed": installed, "last_24h": last_24h, "scans": scans,
@@ -234,5 +270,5 @@ def inventory_view(q: str = "") -> dict[str, Any]:
     return {"packages": packages, "projects": projects}
 
 
-__all__ = ["record_event", "save_inventory", "history", "latest_scans", "stats",
-           "timeseries", "inventory_view", "DB_PATH"]
+__all__ = ["record_event", "save_inventory", "record_monitor", "latest_monitor",
+           "history", "latest_scans", "stats", "timeseries", "inventory_view", "DB_PATH"]
