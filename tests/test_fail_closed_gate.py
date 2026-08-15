@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from argparse import Namespace
+
+from rootkeepers import cli
 from rootkeepers.interceptor import safe_npm
 from rootkeepers.interceptor.detailed_rule_engine import (
     DEFAULT_DETAILED_POLICY,
@@ -20,6 +23,18 @@ def test_gate_blocks_unverifiable(monkeypatch):
     allowed, results = safe_npm.gate_install(["demo@1.0.0"])
     assert allowed is False
     assert results[0].verdict is safe_npm.Verdict.UNVERIFIABLE
+
+
+def test_scan_returns_failure_for_unverifiable(monkeypatch):
+    monkeypatch.setattr(
+        safe_npm,
+        "check_package",
+        lambda spec: safe_npm.RiskResult(spec, safe_npm.Verdict.UNVERIFIABLE, 0, "missing evidence"),
+    )
+    monkeypatch.setattr(safe_npm, "report", lambda result: None)
+    monkeypatch.setattr("rootkeepers.interceptor.reporting.flush_reports", lambda: None)
+
+    assert cli.cmd_scan(Namespace(package=["demo@1.0.0"])) == 1
 
 
 def _result(rule: DetailedRuleName, band: RuleBand, score: int = 0) -> DetailedRuleResult:
