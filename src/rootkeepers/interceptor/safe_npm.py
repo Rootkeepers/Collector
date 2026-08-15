@@ -14,10 +14,8 @@ publish 등)는 전부 그대로 npm에 통과시킨다 (npq-hero와 동일한 �
 import os
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from rootkeepers.interceptor.cooldown import check_cooldown, get_latest_version
 from rootkeepers.paths import load_env
 from rootkeepers.interceptor.reporting import report_event

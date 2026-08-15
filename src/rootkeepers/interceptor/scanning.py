@@ -54,6 +54,51 @@ def _collect_baseline(package_name: str, resolved_version: str | None) -> dict |
         sys.stderr.write(f"[baseline] {package_name} 기준선 수집 실패 (무시하고 진행): {exc}\n")
         return None
 
+
+def _merge_baseline(existing: Any, collected: dict[str, Any]) -> dict[str, Any]:
+    """수집한 기준선을 report의 기존 기준선 **위에 얹는다** (덮어쓰지 않는다).
+
+    lineage의 GitHub 트랙은 이미 최근 태그를 기준으로 릴리스별
+    ``commit``(PR·리뷰어 포함)·``tags``·``workflow_entry_points``를 수집해 둔다.
+    예전에는 ``report["baseline"]``을 통째로 교체해서 그 데이터를 버렸고, 그
+    결과 API 비용은 이미 지불했는데도 orphan_release·unreviewed가 근거 부족
+    (UNVERIFIABLE)으로 남았다.
+
+    두 릴리스 목록은 키가 서로 달라(sigstore 쪽은 npm version, GitHub 쪽은 git
+    태그) 항목 단위로 합치지 않고 이어 붙인다. 규칙 엔진의 소비부가 자기에게
+    필요한 필드를 가진 항목만 골라 쓰기 때문에 — 예를 들어 PR 기준선은
+    ``commit.pull_requests``가 있는 항목만, 워크플로 기준선은
+    ``workflow_entry_points``가 있는 항목만 본다 — 이어 붙여도 서로를 오염시키지
+    않는다. 겹치는 릴리스가 있으면 워크플로 경로가 중복될 수 있으나, 소비부가
+    집합 포함 여부만 보므로 판정에는 영향이 없다.
+
+    한계: GitHub 트랙의 태그 기준선은 "저장소의 최근 태그 5개"라서, 아주 오래된
+    버전을 스캔하면 그 시절이 아닌 현재 시점의 거버넌스와 비교하게 된다.
+    """
+    merged = dict(collected)
+    existing_github = existing.get("github") if isinstance(existing, dict) else None
+    if not isinstance(existing_github, dict):
+        return merged
+    existing_releases = existing_github.get("releases")
+    if not isinstance(existing_releases, list) or not existing_releases:
+        return merged
+
+    collected_github = merged.get("github")
+    collected_github = collected_github if isinstance(collected_github, dict) else {}
+    collected_releases = collected_github.get("releases")
+    collected_releases = collected_releases if isinstance(collected_releases, list) else []
+
+    merged_github = {
+        **existing_github,
+        **collected_github,
+        "releases": [*existing_releases, *collected_releases],
+    }
+    if collected_releases:
+        # 어느 쪽에서 온 기준선인지 감사 로그에서 구분할 수 있게 남긴다.
+        merged_github["source"] = f"{existing_github.get('source') or 'github'}+sigstore_provenance"
+    merged["github"] = merged_github
+    return merged
+
 # ---------------------------------------------------------------------------
 # 트랙별 실측 소요시간 계측 — lineage._run_track을 감싼다 (원본 코드는 수정하지 않음).
 # 스캔은 _scan_lock으로 직렬화되므로 전역 dict를 그대로 써도 안전하다.
@@ -104,10 +149,11 @@ def scan_package(package_name: str, version: str | None = None) -> dict[str, Any
         cooldown = CooldownResult(False, None, None, None, "버전을 확인할 수 없어 쿨다운을 판정하지 못했습니다.")
 
     # 과거 릴리스 기준선을 report에 붙인다 — evidence_from_lineage()가
-    # report["baseline"]에서 읽어 가도록 이미 설계되어 있다.
+    # report["baseline"]에서 읽어 가도록 이미 설계되어 있다. GitHub 트랙이 이미
+    # 수집해 둔 기준선을 버리지 않도록 교체가 아니라 병합한다(_merge_baseline).
     baseline = _collect_baseline(package_name, resolved_version)
     if baseline:
-        report["baseline"] = baseline
+        report["baseline"] = _merge_baseline(report.get("baseline"), baseline)
 
     evidence = evidence_from_lineage(report)
     decision = evaluate_detailed_evidence(evidence)

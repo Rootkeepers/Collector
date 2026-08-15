@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -73,6 +74,16 @@ def collect_release_lineage_report(
             }
             for future in as_completed(futures):
                 track_results[futures[future]] = future.result()
+        # GitHub 트랙이 Sigstore와 동시에 도는 탓에, "현재 릴리스를 만든 워크플로
+        # 경로"(provenance)는 트랙 실행 시점에 아직 없다. 그래서 이 신호만 사후에
+        # 보충한다. GitHub 트랙을 통째로 다시 돌리면 커밋·태그·워크플로·기준선까지
+        # 20여 회를 중복 호출하지만, 이 신호에 실제로 필요한 건 3회뿐이다.
+        _attach_workflow_modification(
+            track_results,
+            github_owner_repo,
+            github_git_head,
+            _slsa_workflow_path(track_results.get("sigstore", {})),
+        )
     else:
         # npm's dist.gitHead is optional and is frequently absent for
         # monorepo/automated releases.  In that case Track C's signed SLSA
@@ -90,8 +101,16 @@ def collect_release_lineage_report(
         if slsa_repository:
             github_owner_repo = normalize_github_repository(slsa_repository)
             repository_source = "sigstore.slsa_predicate.repository"
+        # 이 경로는 Sigstore가 먼저 끝나 있으므로, 현재 릴리스의 provenance
+        # 워크플로 경로를 GitHub 트랙에 곧바로 넘길 수 있다(추가 호출 0회).
+        current_workflow = _slsa_workflow_path(sigstore_result)
         track_results["github"] = _run_track(
-            "github", lambda: _collect_github(github_owner_repo, github_git_head)
+            "github",
+            lambda: _collect_github(
+                github_owner_repo,
+                github_git_head,
+                workflow_entry_point=current_workflow,
+            ),
         )
 
     npm_baseline = _mapping_from_track(npm_result, "baseline")
@@ -221,6 +240,74 @@ def _collect_sigstore(
     return collect_release_lineage(package_name, version, timeout=timeout)
 
 
+def _slsa_git_reference(sigstore_track: dict[str, Any]) -> tuple[str | None, str | None]:
+    """서명된 SLSA 결과가 담고 있는 저장소와 커밋을 돌려준다.
+
+    Sigstore 수집기는 관련 predicate 필드를 ``slsa_predicate`` 아래로 정규화해
+    둔다. 실패했거나 형식이 깨진 Track C 결과는 "증거 없음"으로 취급해서,
+    커밋을 추측하는 대신 GitHub 트랙이 ``SKIPPED``로 남게 한다.
+    """
+    if sigstore_track.get("status") != "SUCCESS":
+        return None, None
+    data = sigstore_track.get("data")
+    if not isinstance(data, dict):
+        return None, None
+    predicate = data.get("slsa_predicate")
+    if not isinstance(predicate, dict):
+        return None, None
+    repository = predicate.get("repository")
+    commit = predicate.get("commit")
+    return (
+        repository if isinstance(repository, str) and repository else None,
+        commit if isinstance(commit, str) and commit else None,
+    )
+
+
+def _attach_workflow_modification(
+    track_results: dict[str, dict[str, Any]],
+    owner_repo: str | None,
+    git_head: str | None,
+    workflow_entry_point: str | None,
+) -> None:
+    """릴리스 커밋에서 provenance 워크플로 파일이 변조됐는지를 GitHub 트랙에 채운다.
+
+    workflow_drift 규칙의 ``workflow_modified_before_release`` 신호는 "현재
+    릴리스를 만든 워크플로 경로"를 알아야 판정할 수 있는데, 그 경로는 Sigstore
+    트랙의 SLSA provenance에서만 나온다. GitHub와 Sigstore가 병렬로 도는
+    경로에서는 GitHub 트랙 실행 시점에 그 값이 없으므로 여기서 보충한다.
+
+    GitHub 트랙 전체를 재실행하지 않는 이유는 비용이다. 재실행은 커밋·태그·
+    워크플로·기준선까지 20여 회를 다시 부르지만, 이 신호에 실제로 필요한 것은
+    저장소 조회 + 커밋 비교 3회뿐이다.
+
+    보조 신호이므로 실패해도 스캔을 중단시키지 않는다. 값이 채워지지 않으면
+    None으로 남고 규칙 엔진이 해당 규칙을 PARTIAL로 표시한다.
+    """
+    if not (owner_repo and git_head and workflow_entry_point):
+        return
+    github_track = track_results.get("github")
+    if not isinstance(github_track, dict) or github_track.get("status") != "SUCCESS":
+        return
+    data = github_track.get("data")
+    if not isinstance(data, dict):
+        return
+
+    from rootkeepers.collectors.github.github_collector import (
+        get_repo,
+        workflow_modified_before_release,
+    )
+
+    try:
+        _, repo = get_repo(owner_repo)
+        data["workflow_modified_before_release"] = workflow_modified_before_release(
+            repo, git_head, workflow_entry_point
+        )
+    except Exception as exc:  # noqa: BLE001 — 보조 신호 실패가 스캔을 막으면 안 된다
+        sys.stderr.write(
+            f"[lineage] {owner_repo}@{git_head} 워크플로 변경 조회 실패(무시): {exc}\n"
+        )
+
+
 def _slsa_workflow_path(sigstore_track: dict[str, Any]) -> str | None:
     data = sigstore_track.get("data")
     if sigstore_track.get("status") != "SUCCESS" or not isinstance(data, dict):
@@ -228,41 +315,6 @@ def _slsa_workflow_path(sigstore_track: dict[str, Any]) -> str | None:
     predicate = data.get("slsa_predicate")
     workflow = predicate.get("workflow_path") if isinstance(predicate, dict) else None
     return workflow if isinstance(workflow, str) and workflow else None
-
-
-def _enrich_npm_baseline(
-    package_name: str, baseline: dict[str, Any], timeout: int
-) -> dict[str, Any]:
-    """Attach historical Sigstore identity to npm's five prior versions."""
-    releases = baseline.get("releases") if isinstance(baseline.get("releases"), list) else []
-
-    def enrich(release: Any) -> dict[str, Any]:
-        item = dict(release) if isinstance(release, dict) else {}
-        version = item.get("version")
-        if item.get("attestation_present") is not True or not isinstance(version, str):
-            item["sigstore"] = {"status": "SKIPPED", "data": None}
-            return item
-        track = _run_track("sigstore", lambda: _collect_sigstore(package_name, version, timeout))
-        item["sigstore"] = track
-        data = track.get("data") if track.get("status") == "SUCCESS" else None
-        if not isinstance(data, dict):
-            return item
-        predicate = data.get("slsa_predicate") if isinstance(data.get("slsa_predicate"), dict) else {}
-        oidc = data.get("fulcio_oidc") if isinstance(data.get("fulcio_oidc"), dict) else {}
-        item["builder_id"] = predicate.get("builder_id")
-        item["workflow_path"] = predicate.get("workflow_path")
-        item["oidc_identity"] = oidc.get("subject")
-        if not item.get("git_head") and isinstance(predicate.get("commit"), str):
-            item["git_head"] = predicate["commit"]
-        return item
-
-    # A maximum of five historical registry requests is intentional.  It
-    # preserves bounded latency while making every baseline field auditable.
-    with ThreadPoolExecutor(max_workers=min(5, max(1, len(releases)))) as executor:
-        enriched = list(executor.map(enrich, releases)) if releases else []
-    result = dict(baseline)
-    result["releases"] = enriched
-    return result
 
 
 def _run_track(name: str, collector: Callable[[], dict[str, Any]]) -> dict[str, Any]:

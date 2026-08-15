@@ -31,7 +31,9 @@ PID_FILE = RUNTIME_DIR / "console.pid"
 LOG_FILE = RUNTIME_DIR / "console.log"
 
 _MODULE = "rootkeepers.dashboard"
-_START_TIMEOUT_SEC = 10
+# 서버 모듈 import만으로 5초 안팎이 든다(requests·PyGithub·cryptography 등).
+# 인터프리터 기동과 첫 실행 디스크 캐시 미스까지 감안해 넉넉히 잡는다.
+_START_TIMEOUT_SEC = 40
 
 
 def _loopback(host: str) -> str:
@@ -151,6 +153,15 @@ def start(host: str, port: int, project: str = "") -> int:
         if proc.poll() is not None:
             break
         time.sleep(0.2)
+
+    # 자식이 아직 살아 있는데 실패로 단정하면 안 된다. 예전에는 여기서
+    # clear_record()까지 불러, 돌고 있는 서버를 `trustgate down`으로 끌 수 없는
+    # 고아 프로세스로 만들었다.
+    if proc.poll() is None:
+        print(f"[경고] {_START_TIMEOUT_SEC}초 안에 응답하지 않았지만 프로세스(pid {proc.pid})는 살아 있습니다.\n"
+              f"        기동 중일 수 있습니다 — trustgate status 로 확인하고,\n"
+              f"        멈춰 있으면 로그를 보세요: {LOG_FILE}", file=sys.stderr)
+        return 1
 
     print(f"[ERROR] 백그라운드 실행에 실패했습니다. 로그를 확인하세요: {LOG_FILE}", file=sys.stderr)
     clear_record()
