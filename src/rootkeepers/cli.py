@@ -243,7 +243,7 @@ def cmd_status(_args) -> int:
 
 def cmd_scan(args) -> int:
     """설치하지 않고 판정만 본다."""
-    from rootkeepers.interceptor.safe_npm import check_package, report
+    from rootkeepers.interceptor.safe_npm import Verdict, check_package, report
     from rootkeepers.interceptor.reporting import flush_reports
 
     load_env()
@@ -251,7 +251,7 @@ def cmd_scan(args) -> int:
     for spec in args.package:
         result = check_package(spec)
         report(result)
-        if result.verdict.value == "RISK":
+        if result.verdict is not Verdict.PASS:
             code = 1
     flush_reports()
     return code
