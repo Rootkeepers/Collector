@@ -171,7 +171,20 @@ def scan_packages(
 def monitor_project(project_dir: Path, *, max_workers: int = 6) -> dict[str, Any]:
     """Check exact installed direct dependencies and return actionable OSV results."""
     checked_at = datetime.now(timezone.utc).isoformat()
-    inventory = collect_inventory(project_dir)
+
+    # 검사 대상이 전역이면 collect_inventory()가 npm 을 호출하므로, 파일만 읽던
+    # 시절과 달리 예외가 나올 수 있다. 여기서 구조화된 결과로 바꿔 둔다 —
+    # 이 함수의 호출자(CLI·API·주기 점검)는 모두 dict 를 기대하고 있어서,
+    # 예외가 그대로 올라가면 CLI 는 traceback 을 뱉는다.
+    try:
+        inventory = collect_inventory(project_dir)
+    except Exception as exc:  # noqa: BLE001 - npm 부재·타임아웃·출력 파싱 실패
+        return {
+            "ok": False, "status": "ERROR", "reason": "INVENTORY_UNAVAILABLE",
+            "error": f"{exc.__class__.__name__}: {exc}",
+            "project": str(project_dir), "checked_at": checked_at, "packages": [],
+        }
+
     if inventory is None:
         return {
             "ok": False, "status": "ERROR", "reason": "PACKAGE_JSON_NOT_FOUND",

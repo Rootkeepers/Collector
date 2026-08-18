@@ -42,6 +42,17 @@ def is_global_scope(project_dir: Path | str | None) -> bool:
     return str(project_dir) == str(GLOBAL_SCOPE)
 
 
+def describe_scope(project_dir: Path | str | None) -> str:
+    """사람에게 보여 줄 검사 대상 이름.
+
+    센티널(``<global-npm>``)은 값 비교를 위한 내부 표현일 뿐이라 그대로 화면에
+    나가면 경로처럼 보여 오해를 부른다. 출력하는 쪽은 전부 이 함수를 거친다.
+    """
+    if is_global_scope(project_dir):
+        return DISPLAY_NAME
+    return str(project_dir)
+
+
 def list_global_packages(*, timeout: int = LS_TIMEOUT_SEC) -> dict[str, str]:
     """전역 설치된 패키지의 이름 → 설치 버전.
 
@@ -110,6 +121,6 @@ def global_inventory() -> dict[str, Any]:
 
 
 __all__ = [
-    "DISPLAY_NAME", "GLOBAL_SCOPE", "global_inventory",
+    "DISPLAY_NAME", "GLOBAL_SCOPE", "describe_scope", "global_inventory",
     "is_global_scope", "list_global_packages",
 ]

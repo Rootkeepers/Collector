@@ -338,9 +338,12 @@ Collector/
     │   ├── baseline.py          과거 릴리스 수집 — "평소"의 기준선
     │   ├── lineage.py           세 트랙을 하나의 계보로 통합
     │   ├── cooldown.py          신버전 관찰 기간(7일) 게이트
+    │   ├── cooldown_gate.py     기준선·신버전 모두 PASS면 조기 승인
+    │   ├── bulk_gate.py         인자 없는 install·ci의 lock 기준 일괄 점검
     │   ├── safe_npm.py          검사 후 진짜 npm에 위임
     │   ├── reporting.py         대시보드 전송 + 콘솔이 없으면 로컬 기록
     │   ├── inventory.py         설치된 패키지 목록 읽기 (네트워크 없음)
+    │   ├── global_npm.py        전역 설치 목록 읽기 (npm ls -g)
     │   ├── shim_installer.py    npm shim 설치/제거 (safe-npm-setup)
     │   └── __main__.py          safe-npm 진입점
     │

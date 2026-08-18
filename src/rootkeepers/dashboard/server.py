@@ -46,7 +46,8 @@ from rootkeepers.interceptor.cooldown import check_cooldown, get_latest_version 
 from rootkeepers.interceptor.cooldown_gate import read_baseline  # noqa: E402
 from rootkeepers.interceptor.safe_npm import find_real_npm, CollectorError  # noqa: E402
 from rootkeepers.interceptor.global_npm import (  # noqa: E402
-    DISPLAY_NAME as GLOBAL_DISPLAY_NAME, is_global_scope, list_global_packages,
+    DISPLAY_NAME as GLOBAL_DISPLAY_NAME, describe_scope, is_global_scope,
+    list_global_packages,
 )
 from rootkeepers.analysis.source_sast import semgrep_available  # noqa: E402
 
@@ -677,7 +678,7 @@ def main():
         )
         monitor_thread.start()
     print(f"TrustGate Scan Console → http://{args.host}:{args.port}")
-    print(f"  기본 프로젝트: {DEFAULT_PROJECT_DIR}")
+    print(f"  기본 검사 대상: {describe_scope(DEFAULT_PROJECT_DIR)}")
     if args.host == "0.0.0.0":  # noqa: S104 — 컨테이너에서는 의도된 설정
         print("  [주의] 모든 인터페이스에 열려 있습니다. 이 콘솔은 인증이 없고")
         print("         패키지 설치를 실행할 수 있으므로 신뢰된 네트워크에서만 노출하세요.")
