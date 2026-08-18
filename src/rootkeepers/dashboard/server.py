@@ -32,7 +32,7 @@ from urllib.parse import parse_qs, urlparse
 # 계산하고, 나머지 경로는 전부 rootkeepers.paths 에서 가져온다.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rootkeepers.paths import STATIC_DIR, load_env, project_dir  # noqa: E402
+from rootkeepers.paths import STATIC_DIR, github_token_status, load_env, project_dir  # noqa: E402
 
 load_env()
 
@@ -439,7 +439,11 @@ class Handler(BaseHTTPRequestHandler):
             ai_provider = os.getenv("TRUSTGATE_AI_PROVIDER", "groq").strip().lower() or "groq"
             self._send_json(200, {
                 "ok": True,
-                "github_token_configured": bool(os.getenv("GITHUB_TOKEN")),
+                # "missing"|"placeholder"|"set" — 존재 여부만 보면 .env.example
+                # 을 그대로 둔 것도 "설정됨"으로 보인다(실제로 겪은 혼란). 진짜
+                # 유효한 토큰인지(만료·revoke)는 API 호출 없이는 알 수 없어
+                # 여기서는 그 흔한 실수 하나만 무료로 잡는다.
+                "github_token_status": github_token_status(),
                 "default_project": str(DEFAULT_PROJECT_DIR),
                 # 경로를 비워 둔 채 설치를 누르면 서버는 이 기본 대상을 쓴다.
                 # 그게 전역이면 클릭 한 번이 이 PC의 전역 설치를 바꾸므로,
