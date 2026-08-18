@@ -12,25 +12,33 @@ REGISTRY = "https://registry.npmjs.org"
 HTTP_TIMEOUT = 10
 COOLDOWN_DAYS = 7
 
-def get_latest_version(pkg: str) -> str | None:
-    """패키지의 최신 버전(dist-tags.latest). 없으면 None."""
+def fetch_package_meta(pkg: str) -> dict | None:
+    """레지스트리의 패키지 메타데이터 문서를 가져온다. 실패하면 None.
+
+    ``dist-tags``(latest/next/beta 등)와 ``time``(버전별 게시 시각)이 모두
+    이 한 문서에 들어 있어, 태그 resolve와 배포일 조회가 같은 출처를 본다.
+    """
     pkg_path = pkg.replace("/", "%2F")
     try:
         with urllib.request.urlopen(f"{REGISTRY}/{pkg_path}", timeout=HTTP_TIMEOUT) as resp:
             meta = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, urllib.error.HTTPError, ValueError, TimeoutError):
+        return None
+    return meta if isinstance(meta, dict) else None
+
+def get_latest_version(pkg: str) -> str | None:
+    """패키지의 최신 버전(dist-tags.latest). 없으면 None."""
+    meta = fetch_package_meta(pkg)
+    if meta is None:
         return None
     return meta.get("dist-tags", {}).get("latest")
 
 def get_publish_date(pkg: str, version: str) -> datetime | None:
     """신버전의 배포일(레지스트리 게시 시각, UTC)을 가져온다. 없으면 None."""
-    pkg_path = pkg.replace("/", "%2F")
-    try:
-        with urllib.request.urlopen(f"{REGISTRY}/{pkg_path}", timeout=HTTP_TIMEOUT) as resp:
-            meta = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, ValueError, TimeoutError):
+    meta = fetch_package_meta(pkg)
+    if meta is None:
         return None
-    
+
     ts = meta.get("time", {}).get(version)
     if not ts:
         return None
