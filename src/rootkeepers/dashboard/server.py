@@ -415,6 +415,10 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "github_token_configured": bool(os.getenv("GITHUB_TOKEN")),
                 "default_project": str(DEFAULT_PROJECT_DIR),
+                # 경로를 비워 둔 채 설치를 누르면 서버는 이 기본 대상을 쓴다.
+                # 그게 전역이면 클릭 한 번이 이 PC의 전역 설치를 바꾸므로,
+                # 화면이 미리 알고 확인을 받을 수 있도록 함께 알려 준다.
+                "default_scope": "global" if is_global_scope(DEFAULT_PROJECT_DIR) else "directory",
                 "db_path": str(store.DB_PATH),
                 "ai_configured": (
                     ai_provider in {"local", "free"}

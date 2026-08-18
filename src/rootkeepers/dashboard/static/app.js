@@ -49,10 +49,15 @@
     renderDetail('explorer-detail-panel');
   }
 
+  /* 경로를 비워 둔 채 설치를 누르면 서버가 쓰는 기본 대상이 전역인지 여부.
+   * /api/health 가 알려 준다 — 전역이면 설치 전에 확인을 받는다. */
+  let defaultScopeIsGlobal = false;
+
   /* =========================================================
    * Connection check
    * ========================================================= */
   fetch('/api/health').then(r => r.json()).then(d => {
+    defaultScopeIsGlobal = d.default_scope === 'global';
     const pill = document.getElementById('conn-pill'), label = document.getElementById('conn-label');
     if (d.ok && d.github_token_configured) { pill.className = 'status-pill ok'; label.textContent = '서버 연결됨 · TOKEN OK'; }
     else if (d.ok) { pill.className = 'status-pill bad'; label.textContent = 'GITHUB_TOKEN 미설정'; }
@@ -892,10 +897,23 @@
       }
       updateInstalledRowCell(row);
     } else if (action === 'install') {
+      const project = document.getElementById('installed-project').value.trim();
+      // 경로가 비어 있으면 서버는 기본 대상을 쓴다. 그게 전역이면 이 클릭이
+      // `npm install -g` 로 이 PC 전체의 설치 상태를 바꾼다 — 프로젝트 폴더
+      // 안에서 끝나는 설치와 달리 영향 범위가 넓으므로 한 번 확인받는다.
+      if (!project && defaultScopeIsGlobal) {
+        const target = targetVersion(row);
+        const proceed = confirm(
+          `이 PC의 전역 npm 패키지를 실제로 변경합니다.\n\n`
+          + `  npm install -g ${name}@${target}\n\n`
+          + `${name}: ${row.installed_version || '(미설치)'} → ${target}\n\n`
+          + `계속할까요?`);
+        // 취소하면 아무것도 하지 않고 버튼을 되살린다 (상태는 여전히 idle).
+        if (!proceed) { updateInstalledRowCell(row); return; }
+      }
       installedActionState[name] = { status: 'installing' };
       updateInstalledRowCell(row);
       try {
-        const project = document.getElementById('installed-project').value.trim();
         const res = await fetch('/api/install', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ package: name, version: targetVersion(row), project }),
