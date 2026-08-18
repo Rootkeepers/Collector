@@ -59,7 +59,8 @@
   fetch('/api/health').then(r => r.json()).then(d => {
     defaultScopeIsGlobal = d.default_scope === 'global';
     const pill = document.getElementById('conn-pill'), label = document.getElementById('conn-label');
-    if (d.ok && d.github_token_configured) { pill.className = 'status-pill ok'; label.textContent = '서버 연결됨 · TOKEN OK'; }
+    if (d.ok && d.github_token_status === 'set') { pill.className = 'status-pill ok'; label.textContent = '서버 연결됨 · TOKEN OK'; }
+    else if (d.ok && d.github_token_status === 'placeholder') { pill.className = 'status-pill bad'; label.textContent = 'GITHUB_TOKEN이 예시 값 그대로임 (.env 확인)'; }
     else if (d.ok) { pill.className = 'status-pill bad'; label.textContent = 'GITHUB_TOKEN 미설정'; }
 
   }).catch(() => {

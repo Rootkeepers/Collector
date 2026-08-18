@@ -99,7 +99,30 @@ def project_dir() -> Path:
     return GLOBAL_SCOPE
 
 
+#: .env.example 에 적어 둔 자리표시자. ``cp .env.example .env`` 를 실행하면
+#: 기본으로 이 값이 들어간다. "비어있지 않다"는 검사만으로는 이 값도 "설정됨"
+#: 으로 보이는데, GitHub API는 이 값을 그대로 401로 거부한다 — 실제로 겪은
+#: 혼란이라(대시보드가 "TOKEN OK"라고 했는데 모든 판정이 UNVERIFIABLE로
+#: 막힘), 네트워크 호출 없이도 잡을 수 있는 이 케이스만이라도 구분한다.
+_GITHUB_TOKEN_PLACEHOLDER = "ghp_replace_with_your_token"
+
+
+def github_token_status() -> str:
+    """``"missing"`` | ``"placeholder"`` | ``"set"``.
+
+    실제로 GitHub가 이 토큰을 받아 줄지(만료·오타·revoke)는 API를 불러야만
+    알 수 있어 여기서는 검사하지 않는다 — 이 함수는 그것보다 훨씬 흔했던
+    실수, ``.env.example`` 을 그대로 복사해 두고 잊는 것만 걸러낸다.
+    """
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    if not token:
+        return "missing"
+    if token == _GITHUB_TOKEN_PLACEHOLDER:
+        return "placeholder"
+    return "set"
+
+
 __all__ = [
     "PROJECT_ROOT", "SRC_ROOT", "DASHBOARD_DIR", "STATIC_DIR", "GLOBAL_SCOPE",
-    "ENV_FILE", "LEGACY_ENV_FILE", "load_env", "project_dir",
+    "ENV_FILE", "LEGACY_ENV_FILE", "load_env", "project_dir", "github_token_status",
 ]

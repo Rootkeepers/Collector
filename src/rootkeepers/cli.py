@@ -27,7 +27,7 @@ import urllib.request
 from pathlib import Path
 
 from rootkeepers.interceptor.global_npm import describe_scope, is_global_scope
-from rootkeepers.paths import PROJECT_ROOT, load_env, project_dir
+from rootkeepers.paths import PROJECT_ROOT, github_token_status, load_env, project_dir
 
 OK, WARN, BAD, INFO = "OK", "경고", "문제", "정보"
 _MARK = {OK: "[ OK ]", WARN: "[경고]", BAD: "[문제]", INFO: "[    ]"}
@@ -192,8 +192,15 @@ def cmd_doctor(_args) -> int:
             if _get_json(f"{base}/api/scans") is None:
                 rep.add(BAD, "콘솔 코드", "지금 코드보다 오래된 프로세스입니다 (새 API 없음).",
                         "trustgate down && trustgate up")
-            if not health.get("github_token_configured"):
+            # 콘솔이 지금 코드보다 오래된 프로세스면 이 필드 자체가 없다
+            # (위의 "콘솔 코드" 항목이 그 경우를 이미 따로 알린다) — 그래서
+            # missing/placeholder일 때만 경고하고, 필드가 없으면 조용히 넘어간다.
+            console_token_status = health.get("github_token_status")
+            if console_token_status == "missing":
                 rep.add(WARN, "콘솔 토큰", "콘솔 쪽에 GITHUB_TOKEN이 없습니다.")
+            elif console_token_status == "placeholder":
+                rep.add(WARN, "콘솔 토큰", "콘솔 쪽 GITHUB_TOKEN이 .env.example의 예시 값 그대로입니다.",
+                        "실제 토큰으로 바꾸고 콘솔을 재시작하세요 (trustgate down && trustgate up).")
 
     # --- 이력 DB --------------------------------------------------------
     try:
@@ -205,8 +212,14 @@ def cmd_doctor(_args) -> int:
                 "콘솔을 로컬로 띄우거나 TRUSTGATE_DB_PATH를 맞추세요.")
 
     # --- 설정 -----------------------------------------------------------
-    if os.getenv("GITHUB_TOKEN"):
+    token_status = github_token_status()
+    if token_status == "set":
         rep.add(OK, "GITHUB_TOKEN", "설정됨")
+    elif token_status == "placeholder":
+        # "존재하니까 OK"로 보면, .env.example을 그대로 복사해 둔 걸 놓친다 —
+        # GitHub는 이 값을 401로 거부하는데 doctor는 "설정됨"이라고 말해 왔다.
+        rep.add(WARN, "GITHUB_TOKEN", ".env.example의 예시 값 그대로입니다 — 실제 토큰이 아닙니다.",
+                f"{PROJECT_ROOT / '.env'} 에서 GITHUB_TOKEN을 실제 발급받은 값으로 바꾸세요.")
     else:
         rep.add(WARN, "GITHUB_TOKEN", "없음 — GitHub 트랙 수집이 실패합니다.",
                 f"{PROJECT_ROOT / '.env'} 에 GITHUB_TOKEN=... 를 넣으세요.")

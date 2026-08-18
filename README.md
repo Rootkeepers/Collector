@@ -15,7 +15,7 @@ npm·GitHub·Sigstore 세 곳에서 수집하고, 6개 공급망 규칙으로 �
 
 ```bash
 pip install -e .
-cp .env.example .env          # GITHUB_TOKEN 채우기
+cp -n .env.example .env          # 이미 있으면 안 건드림 — GITHUB_TOKEN 채우기
 trustgate up
 ```
 
@@ -58,8 +58,13 @@ pipx install -e . && pipx ensurepath
 ## GitHub 토큰 설정
 
 ```bash
-cp .env.example .env
+cp -n .env.example .env
 ```
+
+`-n`은 이미 `.env`가 있으면 건드리지 않는다. 그냥 `cp .env.example .env`를 다시
+치면 이미 넣어 둔 토큰이 예시 값으로 조용히 덮어써진다 — 토큰을 새로 발급해
+넣었는데도 계속 401이 난다면, 이 명령을 다시 실행해서 되돌아간 게 원인일 수
+있다. `trustgate doctor`가 이 경우(예시 값 그대로)를 구분해서 알려준다.
 
 ```env
 GITHUB_TOKEN=ghp_your_github_token_here
