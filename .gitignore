@@ -113,7 +113,3 @@ test_bundle.json
 node_modules/
 package.json
 package-lock.json
-# 단, 예제 프로젝트는 커밋한다 — compose 기본 검사 대상이라
-# 이게 없으면 새로 clone 했을 때 Installed Packages 화면이 비어 있다.
-!examples/**/package.json
-!examples/**/package-lock.json

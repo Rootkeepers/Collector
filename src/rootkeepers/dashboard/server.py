@@ -45,6 +45,9 @@ mimetypes.add_type("text/css", ".css")
 from rootkeepers.interceptor.cooldown import check_cooldown, get_latest_version  # noqa: E402
 from rootkeepers.interceptor.cooldown_gate import read_baseline  # noqa: E402
 from rootkeepers.interceptor.safe_npm import find_real_npm, CollectorError  # noqa: E402
+from rootkeepers.interceptor.global_npm import (  # noqa: E402
+    DISPLAY_NAME as GLOBAL_DISPLAY_NAME, is_global_scope, list_global_packages,
+)
 from rootkeepers.analysis.source_sast import semgrep_available  # noqa: E402
 
 DEFAULT_PROJECT_DIR = project_dir()
@@ -200,11 +203,17 @@ def _record(event: str, scan: dict, source: str = "console", extra: dict | None 
         sys.stderr.write(f"[store] 이력 저장 실패 (무시하고 진행): {exc}\n")
 
 
-def list_installed(project_dir: Path) -> dict:
-    """project_dir의 package.json/package-lock.json을 읽어 설치된 패키지별
-    쿨다운 상태를 정리한다. 실제 npm 레지스트리 조회(get_latest_version,
-    check_cooldown)를 그대로 사용한다 — 지어낸 값 없음.
+def _installed_versions(project_dir: Path) -> tuple[list[str], dict[str, str | None], str]:
+    """검사 대상에서 (패키지 이름 목록, 이름→설치 버전, 화면 표시 이름)을 만든다.
+
+    대상이 폴더면 package.json/package-lock.json 을 읽고, 전역 범위면 npm 에게
+    직접 묻는다. 두 경로의 차이를 여기서 흡수해 두면 아래 검증 루프는 출처를
+    몰라도 된다.
     """
+    if is_global_scope(project_dir):
+        installed = list_global_packages()
+        return sorted(installed), dict(installed), GLOBAL_DISPLAY_NAME
+
     pkg_json_path = project_dir / "package.json"
     lock_path = project_dir / "package-lock.json"
     if not pkg_json_path.exists():
@@ -216,6 +225,21 @@ def list_installed(project_dir: Path) -> dict:
         *pkg_json.get("dependencies", {}).keys(),
         *pkg_json.get("devDependencies", {}).keys(),
     })
+    installed = {
+        name: (read_baseline(name, lockfile=str(lock_path)) if lock_path.exists() else None)
+        for name in names
+    }
+    return names, installed, str(project_dir)
+
+
+def list_installed(project_dir: Path) -> dict:
+    """검사 대상에 설치된 패키지별 쿨다운 상태를 정리한다.
+
+    대상은 프로젝트 폴더(package.json/package-lock.json)이거나 이 PC의 전역 npm
+    설치다. 어느 쪽이든 실제 npm 레지스트리 조회(get_latest_version,
+    check_cooldown)를 그대로 사용한다 — 지어낸 값 없음.
+    """
+    names, installed_by_name, project_label = _installed_versions(project_dir)
 
     # 이력에 남은 마지막 판정을 함께 실어 보낸다 — 콘솔 스캔이든 터미널
     # safe-npm이든, 이미 판정한 패키지를 다시 "미검사"로 보여주지 않도록.
@@ -227,7 +251,7 @@ def list_installed(project_dir: Path) -> dict:
 
     rows = []
     for name in names:
-        installed_version = read_baseline(name, lockfile=str(lock_path)) if lock_path.exists() else None
+        installed_version = installed_by_name.get(name)
         latest_version = get_latest_version(name)
         cooldown = None
         if latest_version and installed_version != latest_version:
@@ -252,7 +276,10 @@ def list_installed(project_dir: Path) -> dict:
                 "event": last["event"], "created_at": last["created_at"],
             },
         })
-    return {"ok": True, "project": str(project_dir), "packages": rows}
+    return {
+        "ok": True, "project": project_label, "packages": rows,
+        "scope": "global" if is_global_scope(project_dir) else "directory",
+    }
 
 
 def run_install(package_name: str, version: str, project_dir: Path) -> dict:
@@ -274,10 +301,14 @@ def run_install(package_name: str, version: str, project_dir: Path) -> dict:
     except CollectorError as exc:
         return {"ok": False, "blocked": False, "error": str(exc)}
 
+    # 전역 범위에는 들어갈 폴더가 없다. `-g` 를 붙이고 cwd 를 넘기지 않는다
+    # (없는 경로를 cwd 로 주면 npm 이 아니라 프로세스 생성 자체가 실패한다).
+    global_scope = is_global_scope(project_dir)
+    argv = [npm_path, "install"] + (["-g"] if global_scope else []) + [f"{package_name}@{version}"]
     try:
         proc = subprocess.run(
-            [npm_path, "install", f"{package_name}@{version}"],
-            cwd=str(project_dir), capture_output=True, text=True, timeout=INSTALL_TIMEOUT_SEC,
+            argv, cwd=None if global_scope else str(project_dir),
+            capture_output=True, text=True, timeout=INSTALL_TIMEOUT_SEC,
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "blocked": False, "error": f"npm install이 {INSTALL_TIMEOUT_SEC}초 내에 끝나지 않았습니다."}

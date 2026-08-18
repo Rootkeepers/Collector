@@ -52,7 +52,7 @@ export PYTHONPATH="/path/to/Collector/src"
 | 변수 | 기본값 | 용도 |
 |---|---|---|
 | `GITHUB_TOKEN` | *(필수)* | GitHub 트랙 수집 |
-| `TRUSTGATE_PROJECT_DIR` | 저장소의 `examples/demo-project/` | Installed Packages 대상 폴더 |
+| `TRUSTGATE_PROJECT_DIR` | *(비움 = 전역 npm)* | Installed Packages 대상 폴더. 비우면 `npm ls -g` 결과를 검사 |
 | `TRUSTGATE_DB_PATH` | `~/.trustgate/history.sqlite3` | 이력 DB |
 | `TRUSTGATE_HOST` / `TRUSTGATE_PORT` | `127.0.0.1` / `8000` | 바인드 주소 |
 | `TRUSTGATE_RUNTIME_DIR` | `~/.trustgate/` | PID·로그 (`trustgate up`) |

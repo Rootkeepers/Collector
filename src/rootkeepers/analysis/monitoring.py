@@ -101,26 +101,35 @@ def compare_scan_history(scan: dict[str, Any], history: list[dict[str, Any]]) ->
     }
 
 
-def monitor_project(project_dir: Path, *, max_workers: int = 6) -> dict[str, Any]:
-    """Check exact installed direct dependencies and return actionable OSV results."""
-    checked_at = datetime.now(timezone.utc).isoformat()
-    inventory = collect_inventory(project_dir)
-    if inventory is None:
-        return {
-            "ok": False, "status": "ERROR", "reason": "PACKAGE_JSON_NOT_FOUND",
-            "project": str(project_dir), "checked_at": checked_at, "packages": [],
-        }
+def scan_packages(
+    packages: list[dict[str, Any]], *, max_workers: int = 6
+) -> dict[str, Any]:
+    """이미 정해진 (name, version) 목록을 OSV로 점검한다.
+
+    ``monitor_project()``에서 조회 부분만 떼어낸 것이다. 설치 게이트 쪽은
+    package.json이 아니라 lock 파일 전체(전이 의존성 포함)를 대상으로 삼아야
+    해서 인벤토리 수집 단계를 공유할 수 없다. 조회 로직까지 따로 두면 두 경로의
+    판정이 갈리므로 여기를 공통 지점으로 남긴다.
+
+    querybatch로 취약 여부만 한 번에 확인한 뒤, 실제로 걸린 것에 한해서만
+    상세를 병렬 조회한다 — 패키지가 수천 개여도 첫 왕복은 요청 1회다.
+    """
     packages = [
         {"name": item["name"], "version": item["version"]}
-        for item in inventory["packages"] if item.get("name") and item.get("version")
+        for item in packages if item.get("name") and item.get("version")
     ]
+    if not packages:
+        return {
+            "ok": True, "status": "CLEAN", "package_count": 0,
+            "vulnerable_count": 0, "error_count": 0, "packages": [],
+        }
     try:
         batch = query_vulnerability_ids(packages)
     except Exception as exc:  # noqa: BLE001 - monitor must remain observable on API failure
         return {
             "ok": False, "status": "ERROR", "reason": f"{exc.__class__.__name__}: {exc}",
-            "project": str(project_dir), "project_name": inventory.get("project"),
-            "checked_at": checked_at, "package_count": len(packages), "vulnerable_count": 0,
+            "package_count": len(packages), "vulnerable_count": 0,
+            "error_count": len(packages),
             "packages": [{**item, "status": "UNKNOWN", "count": 0} for item in packages],
         }
 
@@ -154,12 +163,26 @@ def monitor_project(project_dir: Path, *, max_workers: int = 6) -> dict[str, Any
     return {
         "ok": not error_rows,
         "status": "PARTIAL" if error_rows else ("ACTION_REQUIRED" if vulnerable_rows else "CLEAN"),
-        "project": str(project_dir), "project_name": inventory.get("project"),
-        "checked_at": checked_at, "package_count": len(rows),
-        "vulnerable_count": len(vulnerable_rows), "error_count": len(error_rows),
-        "packages": rows,
-        "advisory_only": True,
+        "package_count": len(rows), "vulnerable_count": len(vulnerable_rows),
+        "error_count": len(error_rows), "packages": rows,
     }
 
 
-__all__ = ["compare_scan_history", "monitor_project"]
+def monitor_project(project_dir: Path, *, max_workers: int = 6) -> dict[str, Any]:
+    """Check exact installed direct dependencies and return actionable OSV results."""
+    checked_at = datetime.now(timezone.utc).isoformat()
+    inventory = collect_inventory(project_dir)
+    if inventory is None:
+        return {
+            "ok": False, "status": "ERROR", "reason": "PACKAGE_JSON_NOT_FOUND",
+            "project": str(project_dir), "checked_at": checked_at, "packages": [],
+        }
+    result = scan_packages(inventory["packages"], max_workers=max_workers)
+    return {
+        **result,
+        "project": str(project_dir), "project_name": inventory.get("project"),
+        "checked_at": checked_at, "advisory_only": True,
+    }
+
+
+__all__ = ["compare_scan_history", "monitor_project", "scan_packages"]
