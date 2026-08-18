@@ -204,6 +204,31 @@ def _record(event: str, scan: dict, source: str = "console", extra: dict | None 
         sys.stderr.write(f"[store] 이력 저장 실패 (무시하고 진행): {exc}\n")
 
 
+def _bad_target_message(project_dir: Path) -> str:
+    """검사 대상을 못 읽는 이유를, 사용자가 고칠 수 있는 문장으로 만든다.
+
+    "package.json이 없습니다"만 보여 주면 경로 자체가 틀린 경우와 폴더는 맞는데
+    Node 프로젝트가 아닌 경우가 구분되지 않는다. 앞은 `.env` 를 고쳐야 하고 뒤는
+    다른 폴더를 골라야 하는, 서로 다른 문제다. 실제로 `.env` 에 예시 경로가 그대로
+    들어가 이 오류가 났는데, 메시지만 봐서는 원인이 `TRUSTGATE_PROJECT_DIR` 이라는
+    것을 알 수 없었다.
+    """
+    configured = os.getenv("TRUSTGATE_PROJECT_DIR", "").strip()
+    hint = ""
+    # 문자열이 아니라 Path 로 비교한다. 사용자가 적은 값과 Path 가 정규화한 값은
+    # 구분자·끝 슬래시에서 쉽게 어긋나고("/home/me/app/" vs "/home/me/app"),
+    # 그러면 정작 원인을 알려 주는 이 힌트가 조용히 사라진다.
+    if configured and project_dir == Path(configured):
+        hint = ("\n지금 값은 TRUSTGATE_PROJECT_DIR 에서 왔습니다. .env 를 고치고 콘솔을 "
+                "재시작하거나, 위 '프로젝트 경로'에 폴더를 넣고 불러오기를 누르세요.")
+
+    if not project_dir.exists():
+        return f"경로가 존재하지 않습니다: {project_dir}{hint}"
+    if not project_dir.is_dir():
+        return f"폴더가 아닙니다: {project_dir}{hint}"
+    return f"{project_dir} 에 package.json 이 없습니다 (Node 프로젝트가 아닙니다).{hint}"
+
+
 def _installed_versions(project_dir: Path) -> tuple[list[str], dict[str, str | None], str]:
     """검사 대상에서 (패키지 이름 목록, 이름→설치 버전, 화면 표시 이름)을 만든다.
 
@@ -218,7 +243,7 @@ def _installed_versions(project_dir: Path) -> tuple[list[str], dict[str, str | N
     pkg_json_path = project_dir / "package.json"
     lock_path = project_dir / "package-lock.json"
     if not pkg_json_path.exists():
-        raise FileNotFoundError(f"{pkg_json_path}에 package.json이 없습니다.")
+        raise FileNotFoundError(_bad_target_message(project_dir))
 
     with open(pkg_json_path, encoding="utf-8") as f:
         pkg_json = json.load(f)
