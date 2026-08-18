@@ -132,6 +132,11 @@ table.pkg-table tr:last-child td { border-bottom: none; }
 table.pkg-table tbody tr { cursor: pointer; }
 table.pkg-table tbody tr:hover td { background: var(--surface-2); }
 table.pkg-table tbody tr.active td { background: var(--accent-soft); }
+/* table-layout이 기본값(auto)이면, 배지 하나뿐인 짧은 열도 헤더 텍스트
+   길이("Collector Status" 등)에 맞춰 넓어져서 내용 주위에 큰 빈 공간이
+   생긴다. 이름 열(.pkg-name-cell)만 남는 폭을 갖고, 나머지는 내용만큼만
+   차지하게 한다 — 열마다 폭을 직접 지정할 필요 없는 표준 트릭이다. */
+table.pkg-table td:not(.pkg-name-cell) { width: 1%; white-space: nowrap; }
 .pkg-name-cell { font-family: 'JBM', monospace; font-weight: 700; }
 .src-tag { font-family: 'JBM', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 4px; margin-left: 7px; }
 .src-tag.live { background: var(--good-soft); color: var(--good); }
@@ -326,8 +331,15 @@ footer.page-foot { text-align: center; font-size: 12px; color: var(--muted); pad
 footer.page-foot a { color: var(--muted); }
 
 @media (max-width: 980px) {
-  .shell { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
+  /* 사이드바를 완전히 숨기면(예전: display:none) 뷰를 바꿀 방법이 아예 없어진다
+     — 이 안에 유일한 내비게이션(Dashboard/Explorer/Installed/History)이 들어
+     있다. 그래서 없애는 대신 아이콘만 남는 폭으로 접는다. 64px면 라벨 없이도
+     클릭 영역이 좁아지지 않아 훨씬 좁은 폭까지 그대로 버틴다. */
+  .shell { grid-template-columns: 64px minmax(0, 1fr); }
+  .sidebar { padding: 18px 8px; align-items: center; }
+  .sidebar .brand-text, .sidebar-foot { display: none; }
+  .nav-item { justify-content: center; padding: 10px 0; }
+  .nav-item .label { display: none; }
   .cards-row { grid-template-columns: repeat(3, 1fr); }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .inspector-wrap { grid-template-columns: 1fr; }
