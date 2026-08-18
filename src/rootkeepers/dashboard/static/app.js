@@ -5,13 +5,20 @@
   const RULES = ['orphan_release','unreviewed','workflow_drift','oidc_mismatch','unexpected_builder','tag_identity_drift'];
   const RULE_LABEL = { orphan_release: 'Orphan Release', unreviewed: 'Unreviewed', workflow_drift: 'Workflow Drift', oidc_mismatch: 'OIDC Mismatch', unexpected_builder: 'Unexpected Builder', tag_identity_drift: 'Tag/Identity Drift' };
   const WEIGHTS = { orphan_release: 0.7, unreviewed: 0.6, workflow_drift: 0.8, oidc_mismatch: 1.0, unexpected_builder: 0.9, tag_identity_drift: 0.6 };
-  const BLOCK_THRESHOLD = 75, MIN_CORROBORATING = 2, MIN_RISK_BAND = 2;
 
   function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
   function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function fmtSpec(name, version) { return version ? `${name}@${version}` : `${name} (버전 미확정)`; }
   function safeId(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
   function isUnverifiable(verdict) { return String(verdict || '').startsWith('UNVERIFIABLE'); }
+  function summarizeRuleBands(rules) {
+    const values = Object.values(rules || {});
+    return {
+      activatedCount: values.filter(rule => rule.band === 'WARN' || rule.band === 'RISK').length,
+      riskBandCount: values.filter(rule => rule.band === 'RISK').length,
+      unverifiableCount: values.filter(rule => rule.band === 'UNVERIFIABLE').length,
+    };
+  }
 
   let liveResults = [];
   let selected = null;
@@ -111,13 +118,14 @@
   function normalizeLive(data) {
     const rules = {};
     (data.rules || []).forEach(r => { rules[r.id] = { score: r.score, band: r.band, reason: r.reason, signals: r.signals || [], evidence_limitations: r.evidence_limitations || [] }; });
+    const bandCounts = summarizeRuleBands(rules);
     const limited = (data.rules || []).filter(r => r.evidence_limitations && r.evidence_limitations.length);
     let scenario = `실제 스캔 · ${new Date(data.generated_at || Date.now()).toLocaleString('ko-KR')}`;
     if (limited.length === RULES.length) scenario += ' — baseline 이력이 없어 6개 규칙 모두 비교 기준선이 부족하다 (미구현 기능).';
     return {
       id: `live:${data.package.name}@${data.package.version}:${Date.now()}`,
       name: data.package.name, version: data.package.version, source: 'live', scenario, rules,
-      decision: { score: data.score, verdict: data.verdict, reason: data.reason, corroboration: data.corroboration.bonus, activatedCount: data.corroboration.activated_rule_count, riskBandCount: data.corroboration.risk_band_rule_count },
+      decision: { score: data.score, verdict: data.verdict, reason: data.reason, corroboration: data.corroboration.bonus, ...bandCounts },
       evidenceByRule: data.evidence, trackStatuses: data.track_statuses, timing: data.timing,
       pipeline: data.pipeline, publishedAt: (data.pipeline || []).find(n => n.id === 'resolve_version')?.detail?.published_at || null,
       cooldown: (() => {
@@ -135,12 +143,13 @@
     (ev.rules || []).forEach(r => {
       rules[r.id] = { score: r.score, band: r.band, reason: r.reason, signals: r.signals || [], evidence_limitations: r.evidence_limitations || [] };
     });
+    const bandCounts = summarizeRuleBands(rules);
     return {
       id: `db:${ev.id}`,
       name: ev.package_name, version: ev.package_version, source: 'stored',
       scenario: `${ev.source || 'console'} · ${ev.event} · ${new Date(ev.created_at).toLocaleString('ko-KR')}`,
       rules,
-      decision: { score: ev.score ?? 0, verdict: ev.verdict, reason: ev.reason, corroboration: 0, activatedCount: 0, riskBandCount: 0 },
+      decision: { score: ev.score ?? 0, verdict: ev.verdict, reason: ev.reason, corroboration: 0, ...bandCounts },
       evidenceByRule: {}, trackStatuses: ev.track_statuses || {}, timing: ev.timing || null,
       pipeline: [], publishedAt: null, cooldown: null,
     };
@@ -445,7 +454,7 @@
           ${p.cooldown ? `<div class="track-chips"><span class="cooldown-badge ${p.cooldown.passed ? 'passed' : 'holding'}">${p.cooldown.passed ? '쿨다운 통과' : `쿨다운 중 · ${p.cooldown.remain_days != null ? p.cooldown.remain_days.toFixed(1) : '?'}일 남음`}</span></div>` : ''}
           ${p.timing && Number.isFinite(p.timing.total) ? `<div class="track-chips"><span class="track-chip">총 소요 ${p.timing.total}ms</span><span class="track-chip">npm ${p.timing.npm}ms</span><span class="track-chip">github ${p.timing.github}ms</span><span class="track-chip">sigstore ${p.timing.sigstore}ms</span></div>` : ''}
         </div>
-        <div class="gauge-wrap">${riskGaugeSvg(p.decision.score, p.decision.verdict)}<div><div class="verdict-pill ${p.decision.verdict}">${p.decision.verdict}</div><div class="gauge-label">보고 기준 ${BLOCK_THRESHOLD} · 실제 게이트 fail-closed</div></div></div>
+        <div class="gauge-wrap">${riskGaugeSvg(p.decision.score, p.decision.verdict)}<div><div class="verdict-pill ${p.decision.verdict}">${p.decision.verdict}</div><div class="gauge-label">fail-closed · RISK 1개 또는 검증 불가 1개부터 설치 차단/보류</div></div></div>
       </div>
     `;
   }
@@ -486,8 +495,9 @@
       </div>
       <div class="verdict-math">
         <span>가중 합산 + 동시발동 보너스 = <b id="vm-score"></b></span>
-        <span>동시발동 규칙 <b>${p.decision.activatedCount}</b>개 (최소 ${MIN_CORROBORATING})</span>
-        <span>RISK 밴드 <b>${p.decision.riskBandCount}</b>개 (최소 ${MIN_RISK_BAND})</span>
+        <span>발동 규칙 <b>${p.decision.activatedCount}</b>개 (WARN/RISK · 점수 산정용)</span>
+        <span>RISK 밴드 <b>${p.decision.riskBandCount}</b>개 (1개 이상 설치 차단)</span>
+        <span>검증 불가 <b>${p.decision.unverifiableCount}</b>개 (1개 이상 설치 보류)</span>
       </div>
       <div style="font-size:12px; color:var(--muted); margin-top:10px;">규칙 막대에 마우스를 올리면 세부 신호가, 클릭하면 '증거 JSON' 탭에서 그 규칙이 선택된다.</div>
     `;
