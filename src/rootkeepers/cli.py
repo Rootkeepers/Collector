@@ -26,6 +26,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from rootkeepers.interceptor.global_npm import describe_scope, is_global_scope
 from rootkeepers.paths import PROJECT_ROOT, load_env, project_dir
 
 OK, WARN, BAD, INFO = "OK", "경고", "문제", "정보"
@@ -211,7 +212,12 @@ def cmd_doctor(_args) -> int:
                 f"{PROJECT_ROOT / '.env'} 에 GITHUB_TOKEN=... 를 넣으세요.")
 
     target = project_dir()
-    if (target / "package.json").is_file():
+    if is_global_scope(target):
+        # 전역 대상에는 package.json 이 없는 게 정상이다. 파일 존재로 판정하면
+        # 정상 설정에서도 매번 경고가 떠서 진단 결과 전체의 신뢰가 깎인다.
+        # 실제 npm 이 있는지는 위의 "실제 npm" 항목이 이미 따로 본다.
+        rep.add(OK, "검사 대상", f"{describe_scope(target)} (npm ls -g)")
+    elif (target / "package.json").is_file():
         rep.add(OK, "검사 대상", str(target))
     else:
         rep.add(WARN, "검사 대상", f"{target} 에 package.json이 없습니다.",
@@ -273,13 +279,24 @@ def cmd_monitor(args) -> int:
     result = monitor_project(target)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
-    else:
-        print(f"{target} · {result.get('package_count', 0)}개 확인 · 취약 {result.get('vulnerable_count', 0)}개")
-        for row in result.get("packages") or []:
-            if row.get("status") != "VULNERABLE":
-                continue
-            target_version = row.get("recommended_version") or "공식 권고 확인"
-            print(f"[취약] {row['name']}@{row['version']} · {row.get('count', 0)}건 · 조치: {target_version}")
+        return 0 if result.get("status") == "CLEAN" else 1
+
+    # 목록 자체를 못 얻은 경우(npm 부재 등)를 "0개 확인"으로 뭉뚱그리면
+    # 안전한 것처럼 보인다. 무엇이 왜 안 됐는지 그대로 말한다.
+    if result.get("status") == "ERROR":
+        print(f"[오류] {describe_scope(target)} · 목록을 읽지 못했습니다 "
+              f"({result.get('reason', 'UNKNOWN')})")
+        if result.get("error"):
+            print(f"       {result['error']}")
+        return 1
+
+    print(f"{describe_scope(target)} · {result.get('package_count', 0)}개 확인 "
+          f"· 취약 {result.get('vulnerable_count', 0)}개")
+    for row in result.get("packages") or []:
+        if row.get("status") != "VULNERABLE":
+            continue
+        target_version = row.get("recommended_version") or "공식 권고 확인"
+        print(f"[취약] {row['name']}@{row['version']} · {row.get('count', 0)}건 · 조치: {target_version}")
     return 0 if result.get("status") == "CLEAN" else 1
 
 

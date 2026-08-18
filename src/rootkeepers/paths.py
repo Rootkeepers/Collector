@@ -38,8 +38,12 @@ SRC_ROOT: Path = PROJECT_ROOT / "src"
 DASHBOARD_DIR: Path = Path(__file__).resolve().parent / "dashboard"
 #: 브라우저로 그대로 내보내는 파일들 (console.html, app.css, app.js, 폰트)
 STATIC_DIR: Path = DASHBOARD_DIR / "static"
-#: 검사 대상 기본 폴더. 저장소에 함께 커밋되므로 clone 직후에도 화면이 채워진다.
-DEMO_PROJECT: Path = PROJECT_ROOT / "examples" / "demo-project"
+#: 검사 대상을 지정하지 않았을 때 쓰는 센티널 — 이 PC에 전역 설치된 npm 패키지.
+#: **실제 디스크 경로가 아니다.** 전역 설치에는 이를 선언한 매니페스트 파일이
+#: 없어서 폴더로 가리킬 수가 없고, npm 에게 직접 물어봐야 한다
+#: (``interceptor/global_npm.py``). 값 비교로만 쓰이므로 존재하지 않는 이름을
+#: 골라 실제 경로와 절대 겹치지 않게 했다.
+GLOBAL_SCOPE: Path = Path("<global-npm>")
 
 #: `.env`는 저장소 루트 한 곳뿐이다. 두 곳을 읽던 시절에는 어느 파일이 이겼는지
 #: 알기 어려웠고, 그게 이 모듈이 생긴 이유이기도 하다.
@@ -77,19 +81,25 @@ def load_env() -> list[Path]:
 
 
 def project_dir() -> Path:
-    """검사 대상 프로젝트 폴더.
+    """검사 대상.
 
-    `TRUSTGATE_PROJECT_DIR`가 있으면 그것, 없으면 저장소의 예제 프로젝트.
-    예제를 기본값으로 두는 이유는 clone 직후 아무 설정 없이 실행해도
-    "Installed Packages" 화면이 비어 있지 않게 하기 위해서다.
+    `TRUSTGATE_PROJECT_DIR`가 있으면 그 폴더, 없으면 이 PC에 전역 설치된 npm
+    패키지(``GLOBAL_SCOPE``).
+
+    전역을 기본값으로 두는 이유는 clone 직후 아무 설정 없이 실행해도
+    "Installed Packages" 화면이 **실제 데이터**로 채워지게 하기 위해서다.
+    한동안은 저장소에 함께 커밋한 예제 ``package.json``을 기본값으로 썼는데,
+    그건 이 PC의 설치 상태가 아니라 고정된 샘플이라 화면에 보이는 값이 사실과
+    달랐다. 게다가 그 안에 적어 둔 패키지에 취약점 알림이 붙기 시작하면서,
+    검사 대상도 아닌 파일 때문에 저장소가 계속 경고를 받는 상태가 됐다.
     """
     configured = os.getenv("TRUSTGATE_PROJECT_DIR", "").strip()
     if configured:
         return Path(configured)
-    return DEMO_PROJECT if DEMO_PROJECT.exists() else SRC_ROOT
+    return GLOBAL_SCOPE
 
 
 __all__ = [
-    "PROJECT_ROOT", "SRC_ROOT", "DASHBOARD_DIR", "STATIC_DIR", "DEMO_PROJECT",
+    "PROJECT_ROOT", "SRC_ROOT", "DASHBOARD_DIR", "STATIC_DIR", "GLOBAL_SCOPE",
     "ENV_FILE", "LEGACY_ENV_FILE", "load_env", "project_dir",
 ]
