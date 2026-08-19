@@ -24,6 +24,7 @@ import subprocess
 import sys
 import threading
 import traceback
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -79,6 +80,7 @@ def _periodic_monitor(stop_event: threading.Event, interval_minutes: float) -> N
 from rootkeepers.dashboard import background, store  # noqa: E402
 from rootkeepers.interceptor.scanning import scan_package  # noqa: E402
 from rootkeepers.analysis import monitor_project, run_ai_analysis  # noqa: E402
+from rootkeepers.analysis.monitoring import scan_packages  # noqa: E402
 
 
 def _pipeline_nodes(package_name, scan) -> list[dict]:
@@ -258,15 +260,17 @@ def _installed_versions(project_dir: Path) -> tuple[list[str], dict[str, str | N
     return names, installed, str(project_dir)
 
 
-def list_installed(project_dir: Path) -> dict:
-    """검사 대상에 설치된 패키지별 쿨다운 상태를 정리한다.
+def _build_installed_response(
+    names: list[str], installed_by_name: dict[str, str | None],
+    project_label: str, scope: str,
+) -> dict:
+    """(이름 목록, 이름→설치 버전)에 쿨다운·최신버전·마지막 판정을 붙여
+    Installed Packages 화면이 그리는 JSON 모양으로 만든다.
 
-    대상은 프로젝트 폴더(package.json/package-lock.json)이거나 이 PC의 전역 npm
-    설치다. 어느 쪽이든 실제 npm 레지스트리 조회(get_latest_version,
-    check_cooldown)를 그대로 사용한다 — 지어낸 값 없음.
+    출처가 파일 라이브 읽기든(``list_installed``) 터미널 동기화 기록이든
+    (``list_installed_from_sync``) 여기서부터는 형태가 같다 — 실제 npm
+    레지스트리 조회(get_latest_version, check_cooldown)는 그대로 쓴다.
     """
-    names, installed_by_name, project_label = _installed_versions(project_dir)
-
     # 이력에 남은 마지막 판정을 함께 실어 보낸다 — 콘솔 스캔이든 터미널
     # safe-npm이든, 이미 판정한 패키지를 다시 "미검사"로 보여주지 않도록.
     try:
@@ -302,9 +306,87 @@ def list_installed(project_dir: Path) -> dict:
                 "event": last["event"], "created_at": last["created_at"],
             },
         })
+    return {"ok": True, "project": project_label, "packages": rows, "scope": scope}
+
+
+def list_installed(project_dir: Path) -> dict:
+    """검사 대상에 설치된 패키지별 쿨다운 상태를 정리한다.
+
+    대상은 프로젝트 폴더(package.json/package-lock.json)이거나 이 PC의 전역 npm
+    설치다. 어느 쪽이든 실제 npm 레지스트리 조회(get_latest_version,
+    check_cooldown)를 그대로 사용한다 — 지어낸 값 없음.
+    """
+    names, installed_by_name, project_label = _installed_versions(project_dir)
+    scope = "global" if is_global_scope(project_dir) else "directory"
+    return _build_installed_response(names, installed_by_name, project_label, scope)
+
+
+def list_installed_from_sync(project_key: str, project_name: str) -> dict:
+    """터미널(safe-npm install)이 동기화해 둔 프로젝트의 패키지 목록을 보여준다.
+
+    서버는 이 프로젝트의 실제 폴더 경로를 모른다 — inventory.py의
+    ``_project_identity()``가 개인정보 보호를 위해 경로 대신 이름과 해시만
+    전송하기 때문이다. 그래서 파일을 다시 읽는 대신, 동기화 시점에 이미 전송된
+    이름·버전을 그대로 쓴다.
+
+    이 뷰에서는 실제로 설치를 실행할 수 없다 — cd할 실제 경로가 없다.
+    프론트엔드가 ``scope == "synced"``를 보고 설치 버튼을 감춘다.
+    """
+    rows = store.project_inventory(project_key)
+    if not rows:
+        raise FileNotFoundError(f"동기화된 데이터를 찾을 수 없습니다: {project_name}")
+    names = sorted({r["package_name"] for r in rows if r.get("package_name")})
+    installed_by_name = {r["package_name"]: r.get("version") for r in rows}
+    return _build_installed_response(names, installed_by_name, project_name, "synced")
+
+
+def _resolve_installed_target(project: str) -> tuple[str, Any]:
+    """``project`` 쿼리 인자로부터 (scope, 대상)을 고른다.
+
+    명시적으로 지정한 값(쿼리 파라미터, TRUSTGATE_PROJECT_DIR)이 항상 이긴다.
+    아무것도 지정 안 했고 기본값이 전역 범위로 떨어질 때만, 전역 npm 목록보다
+    "방금 터미널로 설치한 프로젝트"를 우선한다 — 그게 더 쓸모 있다.
+    """
+    if project:
+        return "directory", Path(project)
+    if is_global_scope(DEFAULT_PROJECT_DIR):
+        synced = store.latest_synced_project()
+        if synced:
+            return "synced", synced
+    return ("global" if is_global_scope(DEFAULT_PROJECT_DIR) else "directory"), DEFAULT_PROJECT_DIR
+
+
+def _target_label(scope: str, target: Any) -> str:
+    """모니터 캐시 키·화면 표시용 문자열.
+
+    ``list_installed_from_sync()``가 쓰는 project_label과 반드시 같은 값이어야
+    "취약 버전 모니터링" 버튼(POST로 기록)과 스냅샷 조회(GET)가 서로를 찾는다.
+    """
+    if scope == "synced":
+        return target["project"] or target["project_key"]
+    return str(target)
+
+
+def _monitor_from_sync(project_key: str, project_name: str, *, max_workers: int = 6) -> dict:
+    """터미널이 동기화해 둔 프로젝트의 패키지를 OSV로 점검한다.
+
+    ``monitor_project()``와 같은 응답 모양을 돌려준다 — Installed Packages
+    화면이 지금 보여주는 목록(synced)과 다른 대상을 모니터링하면, 표에는
+    A 프로젝트가 떠 있는데 취약점 배지는 B 프로젝트 것이 섞이는 상황이 된다.
+    """
+    checked_at = datetime.now(timezone.utc).isoformat()
+    rows = store.project_inventory(project_key)
+    packages = [{"name": r["package_name"], "version": r["version"]}
+                for r in rows if r.get("package_name") and r.get("version")]
+    if not packages:
+        return {
+            "ok": False, "status": "ERROR", "reason": "NO_SYNCED_PACKAGES",
+            "project": project_name, "checked_at": checked_at, "packages": [],
+        }
+    result = scan_packages(packages, max_workers=max_workers)
     return {
-        "ok": True, "project": project_label, "packages": rows,
-        "scope": "global" if is_global_scope(project_dir) else "directory",
+        **result, "project": project_name, "project_name": project_name,
+        "checked_at": checked_at, "advisory_only": True,
     }
 
 
@@ -446,8 +528,9 @@ class Handler(BaseHTTPRequestHandler):
                 "default_project": str(DEFAULT_PROJECT_DIR),
                 # 경로를 비워 둔 채 설치를 누르면 서버는 이 기본 대상을 쓴다.
                 # 그게 전역이면 클릭 한 번이 이 PC의 전역 설치를 바꾸므로,
-                # 화면이 미리 알고 확인을 받을 수 있도록 함께 알려 준다.
-                "default_scope": "global" if is_global_scope(DEFAULT_PROJECT_DIR) else "directory",
+                # 화면이 미리 알고 확인을 받을 수 있도록 함께 알려 준다. "synced"는
+                # 실제 경로를 모르는 터미널 동기화 데이터라 애초에 설치가 안 된다.
+                "default_scope": _resolve_installed_target("")[0],
                 "db_path": str(store.DB_PATH),
                 "ai_configured": (
                     ai_provider in {"local", "free"}
@@ -499,9 +582,13 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/installed":
             qs = parse_qs(parsed.query)
             project = (qs.get("project") or [""])[0].strip()
-            project_dir = Path(project) if project else DEFAULT_PROJECT_DIR
+            scope, target = _resolve_installed_target(project)
             try:
-                self._send_json(200, list_installed(project_dir))
+                if scope == "synced":
+                    result = list_installed_from_sync(target["project_key"], target["project"] or target["project_key"])
+                else:
+                    result = list_installed(target)
+                self._send_json(200, result)
             except Exception as exc:  # noqa: BLE001
                 traceback.print_exc()
                 self._send_json(200, {"ok": False, "error": f"{exc.__class__.__name__}: {exc}"})
@@ -510,8 +597,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/monitor":
             qs = parse_qs(parsed.query)
             project = (qs.get("project") or [""])[0].strip()
-            project_path = str(Path(project) if project else DEFAULT_PROJECT_DIR)
-            self._send_json(200, {"ok": True, "monitor": store.latest_monitor(project_path)})
+            scope, target = _resolve_installed_target(project)
+            self._send_json(200, {"ok": True, "monitor": store.latest_monitor(_target_label(scope, target))})
             return
 
         # static files — dashboard/static/ 밖은 절대 내보내지 않는다
@@ -569,9 +656,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "잘못된 JSON body"})
                 return
             project = (payload.get("project") or "").strip()
-            project_dir = Path(project) if project else DEFAULT_PROJECT_DIR
+            scope, target = _resolve_installed_target(project)
             try:
-                result = monitor_project(project_dir)
+                if scope == "synced":
+                    result = _monitor_from_sync(target["project_key"], target["project"] or target["project_key"])
+                else:
+                    result = monitor_project(target)
                 store.record_monitor(result)
                 self._send_json(200, result)
             except Exception as exc:  # noqa: BLE001
@@ -641,10 +731,21 @@ class Handler(BaseHTTPRequestHandler):
             package = (payload.get("package") or "").strip()
             version = (payload.get("version") or "").strip()
             project = (payload.get("project") or "").strip()
-            project_dir = Path(project) if project else DEFAULT_PROJECT_DIR
             if not package or not version:
                 self._send_json(400, {"ok": False, "error": "package/version이 필요합니다."})
                 return
+            scope, target = _resolve_installed_target(project)
+            if scope == "synced":
+                # 터미널 동기화 데이터는 실제 폴더 경로를 모른다 — cd할 곳이
+                # 없으니 npm install을 어디서도 실행할 수 없다. 프론트엔드가
+                # 이 경우 버튼을 안 보여주지만, 서버도 같은 이유로 거부한다.
+                self._send_json(200, {
+                    "ok": False, "blocked": False,
+                    "error": "이 목록은 터미널에서 동기화된 데이터라 실제 경로를 모릅니다. "
+                             "위 '프로젝트 경로'에 폴더를 직접 입력한 뒤 설치하세요.",
+                })
+                return
+            project_dir = target
             try:
                 self._send_json(200, run_install(package, version, project_dir))
             except Exception as exc:  # noqa: BLE001

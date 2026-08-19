@@ -270,5 +270,30 @@ def inventory_view(q: str = "") -> dict[str, Any]:
     return {"packages": packages, "projects": projects}
 
 
+@_with_db
+def latest_synced_project() -> dict[str, Any] | None:
+    """가장 최근에 safe-npm install이 동기화한 프로젝트. 없으면 None.
+
+    Installed Packages 화면의 기본 대상을 고를 때 쓴다 — 경로도
+    TRUSTGATE_PROJECT_DIR도 없을 때, 이 PC의 전역 npm 목록보다 "방금 터미널로
+    설치한 그 프로젝트"를 보여주는 게 대개 더 쓸모 있다.
+    """
+    row = _conn.execute(
+        """SELECT project_key, project, MAX(updated_at) updated_at
+           FROM inventory GROUP BY project_key ORDER BY updated_at DESC LIMIT 1"""
+    ).fetchone()
+    return dict(row) if row else None
+
+
+@_with_db
+def project_inventory(project_key: str) -> list[dict[str, Any]]:
+    """한 프로젝트에 동기화된 패키지 목록(이름·버전·spec·dev)."""
+    rows = _conn.execute(
+        """SELECT package_name, version, spec, dev FROM inventory
+           WHERE project_key = ? ORDER BY package_name""", (project_key,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 __all__ = ["record_event", "save_inventory", "record_monitor", "latest_monitor",
-           "history", "latest_scans", "stats", "timeseries", "inventory_view", "DB_PATH"]
+           "history", "latest_scans", "stats", "timeseries", "inventory_view",
+           "latest_synced_project", "project_inventory", "DB_PATH"]

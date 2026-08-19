@@ -49,15 +49,18 @@
     renderDetail('explorer-detail-panel');
   }
 
-  /* 경로를 비워 둔 채 설치를 누르면 서버가 쓰는 기본 대상이 전역인지 여부.
-   * /api/health 가 알려 준다 — 전역이면 설치 전에 확인을 받는다. */
+  /* 경로를 비워 둔 채 설치를 누르면 서버가 쓰는 기본 대상. /api/health 가
+   * 알려 준다 — 전역이면 설치 전에 확인을 받고, synced(터미널 동기화 기록)면
+   * 애초에 실제 경로를 몰라 설치 자체를 막는다. */
   let defaultScopeIsGlobal = false;
+  let defaultScopeIsSynced = false;
 
   /* =========================================================
    * Connection check
    * ========================================================= */
   fetch('/api/health').then(r => r.json()).then(d => {
     defaultScopeIsGlobal = d.default_scope === 'global';
+    defaultScopeIsSynced = d.default_scope === 'synced';
     const pill = document.getElementById('conn-pill'), label = document.getElementById('conn-label');
     if (d.ok && d.github_token_status === 'set') { pill.className = 'status-pill ok'; label.textContent = '서버 연결됨 · TOKEN OK'; }
     else if (d.ok && d.github_token_status === 'placeholder') { pill.className = 'status-pill bad'; label.textContent = 'GITHUB_TOKEN이 예시 값 그대로임 (.env 확인)'; }
@@ -822,6 +825,9 @@
   let installedLoadedOnce = false;
   let installedRows = [];
   let installedActionState = {};
+  // "directory" | "global" | "synced" — 지금 표에 뜬 목록의 출처. synced는
+  // 터미널 동기화 기록이라 서버가 실제 경로를 몰라 여기서 설치를 못 한다.
+  let installedScope = 'directory';
   let installedAbortController = null;
 
   function cooldownBadgeHtml(row) {
@@ -848,6 +854,11 @@
   }
 
   function actionCellHtml(row, state) {
+    // 터미널 동기화 기록에는 실제 경로가 없다 — 여기서 설치·조기승인을
+    // 시작해도 서버가 어디에 npm install을 실행할지 알 수 없다.
+    if (installedScope === 'synced') {
+      return `<span style="color:var(--muted); font-size:12px;">터미널에서 관리됨 · 설치 불가</span>`;
+    }
     const needsRemediation = row.vulnerability?.status === 'VULNERABLE';
     const target = targetVersion(row);
     if (needsRemediation && !target) return `<span class="muted">공식 완화책 검토</span>`;
@@ -928,6 +939,14 @@
       updateInstalledRowCell(row);
     } else if (action === 'install') {
       const project = document.getElementById('installed-project').value.trim();
+      // 이 목록이 터미널 동기화 기록(synced)이면 서버는 실제 경로를 모른다 —
+      // actionCellHtml이 이 경우 버튼 자체를 안 보여주지만, 혹시 남은 상태로
+      // 클릭이 들어와도 여기서 한 번 더 막는다.
+      if (!project && defaultScopeIsSynced) {
+        alert('이 목록은 터미널에서 동기화된 데이터라 실제 경로를 모릅니다.\n위 "프로젝트 경로"에 폴더를 직접 입력한 뒤 설치하세요.');
+        updateInstalledRowCell(row);
+        return;
+      }
       // 경로가 비어 있으면 서버는 기본 대상을 쓴다. 그게 전역이면 이 클릭이
       // `npm install -g` 로 이 PC 전체의 설치 상태를 바꾼다 — 프로젝트 폴더
       // 안에서 끝나는 설치와 달리 영향 범위가 넓으므로 한 번 확인받는다.
@@ -985,9 +1004,11 @@
       }
       installedLoadedOnce = true;
       installedRows = data.packages;
+      installedScope = data.scope || 'directory';
       installedActionState = {};
       if (!project) projectInput.placeholder = data.project;
       document.getElementById('installed-panel').style.display = 'block';
+      document.getElementById('installed-synced-notice').style.display = installedScope === 'synced' ? 'flex' : 'none';
       document.getElementById('installed-monitor-btn').disabled = false;
       renderInstalledTable();
       loadMonitorSnapshot(project);
