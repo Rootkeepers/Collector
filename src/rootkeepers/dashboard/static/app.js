@@ -381,7 +381,7 @@
     }
 
     body.innerHTML = `
-      <p class="subhead">LangGraph가 이력·OSV·Semgrep을 수집하고 무료 Groq API가 설명한다. 키·한도 문제가 있으면 로컬 증거 추론으로 자동 전환한다.</p>
+      <p class="subhead">Groq API로 요약, 실패 시 로컬 추론으로 자동 전환.</p>
       <div class="scan-form">
         <button class="btn primary" id="ai-run" ${state.status === 'loading' ? 'disabled' : ''}>
           ${state.status === 'done' ? '다시 분석' : '통합 분석 실행'}
@@ -991,7 +991,7 @@
     const project = projectInput.value.trim();
     const loadBtn = document.getElementById('installed-load-btn');
     loadBtn.disabled = true;
-    statusArea.innerHTML = `<div class="scan-status"><span class="spinner"></span><span>package.json 읽는 중 + 레지스트리 조회… (패키지 수에 따라 수 초~수십 초)</span></div>`;
+    statusArea.innerHTML = `<div class="scan-status"><span class="spinner"></span><span>불러오는 중…</span></div>`;
     try {
       const q = new URLSearchParams();
       if (project) q.set('project', project);
