@@ -41,7 +41,6 @@
         <div class="grid-2">
           <div class="panel">
             <h2>패키지 스캔</h2>
-            <p class="subhead">npm 패키지 스캔</p>
             <div class="scan-form">
               <input type="text" id="scan-input" class="mono" placeholder="예: left-pad, react@18.2.0, lodash">
               <button class="btn primary" id="scan-btn">스캔 실행</button>
@@ -51,7 +50,6 @@
           </div>
           <div class="panel">
             <h2>최근 스캔 개요</h2>
-            <p class="subhead">가장 최근 실행한 스캔</p>
             <div id="dashboard-recent"><div class="no-selection">아직 스캔 기록이 없다.</div></div>
           </div>
         </div>
@@ -77,11 +75,10 @@
         <div class="view-head"><h1>Installed Packages</h1></div>
         <div class="panel">
           <h2>프로젝트 경로</h2>
-          <p class="subhead">프로젝트 경로 지정</p>
           <div class="scan-form">
             <input type="text" id="installed-project" class="mono" placeholder="예: C:/Users/me/my-project">
             <button class="btn primary" id="installed-load-btn">불러오기</button>
-            <button class="btn" id="installed-global-btn" title="터미널 동기화 기록과 무관하게 이 PC의 전역 npm 패키지를 확실히 본다">전역 npm 보기</button>
+            <button class="btn" id="installed-global-btn" title="항상 전역 npm 패키지를 본다">전역 npm 보기</button>
             <button class="btn" id="installed-monitor-btn" disabled>취약 버전 모니터링</button>
           </div>
           <div id="installed-status-area"></div>
@@ -90,9 +87,7 @@
         <div class="panel" id="installed-panel" style="display:none;">
           <div id="installed-synced-notice" class="notice" style="display:none; margin-bottom:14px;">
             <span class="n-icon">i</span>
-            <span>이 목록은 터미널(<span class="mono">safe-npm install</span>)에서 동기화된 기록입니다 —
-              서버가 실제 폴더 경로를 몰라 <b>여기서 설치를 실행할 수 없습니다</b>.
-              실시간으로 보거나 직접 설치하려면 위 "프로젝트 경로"에 폴더를 입력하세요.</span>
+            <span>터미널 동기화 기록 — <b>여기서 설치할 수 없습니다</b>. 직접 설치하려면 프로젝트 경로를 입력하세요.</span>
           </div>
           <div class="table-wrap">
             <table class="pkg-table">
@@ -141,8 +136,6 @@
         </div>
         <div class="panel">
           <h2>터미널에서 동기화된 프로젝트</h2>
-          <p class="subhead">safe-npm install로 설치할 때마다 그 프로젝트의 패키지 목록이 여기 쌓인다.
-            위의 "패키지 · 출처 검색"과 같은 검색어를 쓴다.</p>
           <div class="table-wrap">
             <table class="pkg-table">
               <thead><tr><th>프로젝트</th><th>패키지 수</th><th>마지막 동기화</th></tr></thead>
@@ -150,20 +143,18 @@
             </table>
           </div>
           <div id="inv-projects-empty" class="empty-hint" style="display:none;">
-            아직 동기화된 프로젝트가 없다. 터미널에서 <span class="mono">safe-npm install &lt;패키지&gt;</span>로
-            설치하면 여기 나타난다.
+            아직 없다. <span class="mono">safe-npm install</span>로 설치하면 여기 나타난다.
           </div>
         </div>
         <div class="panel">
           <h2>패키지 분포</h2>
-          <p class="subhead">동기화된 프로젝트들에서 이 패키지가 몇 곳에, 어떤 버전으로 깔려 있는지.</p>
           <div class="table-wrap">
             <table class="pkg-table">
               <thead><tr><th>패키지</th><th>프로젝트 수</th><th>버전</th></tr></thead>
               <tbody id="inv-packages-tbody"></tbody>
             </table>
           </div>
-          <div id="inv-packages-empty" class="empty-hint" style="display:none;">아직 데이터가 없다.</div>
+          <div id="inv-packages-empty" class="empty-hint" style="display:none;">아직 없다.</div>
         </div>
       </section>
 
