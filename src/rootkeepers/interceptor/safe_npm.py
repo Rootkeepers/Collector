@@ -73,8 +73,6 @@ def find_real_npm() -> str:
 
     PATH에 `npm`이라는 이름의 래퍼를 끼워 넣어 쓰는 경우, 단순한
     ``shutil.which("npm")``은 **그 래퍼 자신**을 찾아내 무한 재귀에 빠진다.
-    ``TRUSTGATE_SHIM_DIR``에 래퍼가 있는 디렉터리를 지정하면 탐색에서 제외한다
-    (지정하지 않으면 PATH 순서대로 그냥 찾는다).
 
     `npm` 커맨드 자체가 이 인터셉터로 shim 처리된 경우, shim 스크립트가
     자기 자신을 제외한 PATH에서 미리 찾은 진짜 npm 경로를

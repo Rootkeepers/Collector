@@ -132,6 +132,32 @@
           </div>
           <div id="hist-empty" class="empty-hint" style="display:none;">아직 기록이 없다.</div>
         </div>
+        <div class="panel">
+          <h2>터미널에서 동기화된 프로젝트</h2>
+          <p class="subhead">safe-npm install로 설치할 때마다 그 프로젝트의 패키지 목록이 여기 쌓인다.
+            위의 "패키지 · 출처 검색"과 같은 검색어를 쓴다.</p>
+          <div class="table-wrap">
+            <table class="pkg-table">
+              <thead><tr><th>프로젝트</th><th>패키지 수</th><th>마지막 동기화</th></tr></thead>
+              <tbody id="inv-projects-tbody"></tbody>
+            </table>
+          </div>
+          <div id="inv-projects-empty" class="empty-hint" style="display:none;">
+            아직 동기화된 프로젝트가 없다. 터미널에서 <span class="mono">safe-npm install &lt;패키지&gt;</span>로
+            설치하면 여기 나타난다.
+          </div>
+        </div>
+        <div class="panel">
+          <h2>패키지 분포</h2>
+          <p class="subhead">동기화된 프로젝트들에서 이 패키지가 몇 곳에, 어떤 버전으로 깔려 있는지.</p>
+          <div class="table-wrap">
+            <table class="pkg-table">
+              <thead><tr><th>패키지</th><th>프로젝트 수</th><th>버전</th></tr></thead>
+              <tbody id="inv-packages-tbody"></tbody>
+            </table>
+          </div>
+          <div id="inv-packages-empty" class="empty-hint" style="display:none;">아직 데이터가 없다.</div>
+        </div>
       </section>
 
       <footer class="page-foot">TrustGate Scan Console</footer>

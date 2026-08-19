@@ -91,11 +91,6 @@ def validate_oidc_matches_predicate(
     }
 
 
-def is_oidc_match(predicate_info: dict[str, Any], oidc_info: dict[str, Any]) -> bool:
-    """Return only the boolean pass/fail result for OIDC cross-validation."""
-    return bool(validate_oidc_matches_predicate(predicate_info, oidc_info)["passed"])
-
-
 def _compare_required(
     mismatches: list[dict[str, str]],
     field: str,
@@ -149,6 +144,5 @@ def _normalize_workflow_path(value: str) -> str:
 
 __all__ = [
     "CrossValidationError",
-    "is_oidc_match",
     "validate_oidc_matches_predicate",
 ]

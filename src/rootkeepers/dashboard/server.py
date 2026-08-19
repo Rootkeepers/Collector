@@ -350,8 +350,7 @@ def run_install(package_name: str, version: str, project_dir: Path) -> dict:
 
 
 def run_early_approve(package_name: str, installed_version: str, candidate_version: str) -> dict:
-    """cooldown_gate.gate_package()의 '조기 승인(EARLY_APPROVE)' 분기를
-    그대로 재현한다 — 단, verify()로 가짜 True 대신 실제 규칙 엔진 결과를 쓴다.
+    """조기 승인(EARLY_APPROVE) 분기 — 실제 규칙 엔진으로 기준선·신버전을 검증한다.
 
     쿨다운이 아직 안 지났어도, 현재 설치된 버전(기준선)과 신버전 후보가
     둘 다 PASS일 때만 조기 승인한다. 보조 AI 분석은 이 결정을 바꾸지 않는다.
