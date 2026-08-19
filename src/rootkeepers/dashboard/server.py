@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, urlparse
 # 계산하고, 나머지 경로는 전부 rootkeepers.paths 에서 가져온다.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rootkeepers.paths import STATIC_DIR, github_token_status, load_env, project_dir  # noqa: E402
+from rootkeepers.paths import GLOBAL_SCOPE, STATIC_DIR, github_token_status, load_env, project_dir  # noqa: E402
 
 load_env()
 
@@ -340,13 +340,19 @@ def list_installed_from_sync(project_key: str, project_name: str) -> dict:
     return _build_installed_response(names, installed_by_name, project_name, "synced")
 
 
-def _resolve_installed_target(project: str) -> tuple[str, Any]:
+def _resolve_installed_target(project: str, *, force_global: bool = False) -> tuple[str, Any]:
     """``project`` 쿼리 인자로부터 (scope, 대상)을 고른다.
 
     명시적으로 지정한 값(쿼리 파라미터, TRUSTGATE_PROJECT_DIR)이 항상 이긴다.
     아무것도 지정 안 했고 기본값이 전역 범위로 떨어질 때만, 전역 npm 목록보다
     "방금 터미널로 설치한 프로젝트"를 우선한다 — 그게 더 쓸모 있다.
+
+    ``force_global``: 동기화 기록이 하나라도 있으면 빈 입력만으로는 다시
+    전역으로 못 돌아온다 — "확실히 이 PC의 전역 목록을 보고 싶다"는 요청을
+    별도로 받아, 경로 입력이나 동기화 기록과 무관하게 항상 전역으로 보낸다.
     """
+    if force_global:
+        return "global", GLOBAL_SCOPE
     if project:
         return "directory", Path(project)
     if is_global_scope(DEFAULT_PROJECT_DIR):
@@ -582,7 +588,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/installed":
             qs = parse_qs(parsed.query)
             project = (qs.get("project") or [""])[0].strip()
-            scope, target = _resolve_installed_target(project)
+            force_global = (qs.get("scope") or [""])[0].strip() == "global"
+            scope, target = _resolve_installed_target(project, force_global=force_global)
             try:
                 if scope == "synced":
                     result = list_installed_from_sync(target["project_key"], target["project"] or target["project_key"])
@@ -597,7 +604,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/monitor":
             qs = parse_qs(parsed.query)
             project = (qs.get("project") or [""])[0].strip()
-            scope, target = _resolve_installed_target(project)
+            force_global = (qs.get("scope") or [""])[0].strip() == "global"
+            scope, target = _resolve_installed_target(project, force_global=force_global)
             self._send_json(200, {"ok": True, "monitor": store.latest_monitor(_target_label(scope, target))})
             return
 
@@ -656,7 +664,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "잘못된 JSON body"})
                 return
             project = (payload.get("project") or "").strip()
-            scope, target = _resolve_installed_target(project)
+            force_global = str(payload.get("scope") or "").strip() == "global"
+            scope, target = _resolve_installed_target(project, force_global=force_global)
             try:
                 if scope == "synced":
                     result = _monitor_from_sync(target["project_key"], target["project"] or target["project_key"])
@@ -731,10 +740,11 @@ class Handler(BaseHTTPRequestHandler):
             package = (payload.get("package") or "").strip()
             version = (payload.get("version") or "").strip()
             project = (payload.get("project") or "").strip()
+            force_global = str(payload.get("scope") or "").strip() == "global"
             if not package or not version:
                 self._send_json(400, {"ok": False, "error": "package/version이 필요합니다."})
                 return
-            scope, target = _resolve_installed_target(project)
+            scope, target = _resolve_installed_target(project, force_global=force_global)
             if scope == "synced":
                 # 터미널 동기화 데이터는 실제 폴더 경로를 모른다 — cd할 곳이
                 # 없으니 npm install을 어디서도 실행할 수 없다. 프론트엔드가
