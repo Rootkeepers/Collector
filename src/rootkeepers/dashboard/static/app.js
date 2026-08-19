@@ -649,7 +649,7 @@
     const q = document.getElementById('h-q').value.trim();
     const ev = document.getElementById('h-event').value;
     const vd = document.getElementById('h-verdict').value;
-    if (q) p.set('q', q);
+    if (q) { p.set('q', q); p.set('pkg', q); } // pkg: /api/history의 inventory 집계 필터, 같은 입력을 공유한다
     if (ev) p.set('event', ev);
     if (vd) p.set('verdict', vd);
     return p;
@@ -662,6 +662,7 @@
       renderHistCards(d.stats);
       renderHistTrend(d.days);
       renderHistTable(d.events);
+      renderHistInventory(d.inventory);
     } catch (err) {
       document.getElementById('hist-empty').style.display = 'block';
       document.getElementById('hist-empty').textContent = '이력을 불러오지 못했다: ' + err;
@@ -752,6 +753,34 @@
         renderHistTable(events);
       });
     });
+  }
+
+  /* 터미널(safe-npm install)이 설치할 때마다 그 프로젝트의 패키지 목록을
+   * 콘솔로 동기화해 왔다(reporting.report_inventory → /api/ingest-inventory).
+   * 그 데이터는 DB에 계속 쌓이고 있었지만 화면에 연결된 곳이 없어서, 터미널로
+   * 설치해도 대시보드 어디에도 나타나지 않았다 — 여기서 그 데이터를 보여준다. */
+  function renderHistInventory(inventory) {
+    const inv = inventory || { projects: [], packages: [] };
+
+    const projTbody = document.getElementById('inv-projects-tbody');
+    const projects = inv.projects || [];
+    document.getElementById('inv-projects-empty').style.display = projects.length ? 'none' : 'block';
+    projTbody.innerHTML = projects.map(p => `
+      <tr>
+        <td class="pkg-name-cell">${escapeHtml(p.project || p.project_key)}</td>
+        <td class="mono">${escapeHtml(p.package_count)}</td>
+        <td class="mono">${escapeHtml(new Date(p.updated_at).toLocaleString('ko-KR'))}</td>
+      </tr>`).join('');
+
+    const pkgTbody = document.getElementById('inv-packages-tbody');
+    const packages = inv.packages || [];
+    document.getElementById('inv-packages-empty').style.display = packages.length ? 'none' : 'block';
+    pkgTbody.innerHTML = packages.map(p => `
+      <tr>
+        <td class="pkg-name-cell">${escapeHtml(p.package_name)}</td>
+        <td class="mono">${escapeHtml(p.project_count)}</td>
+        <td class="mono">${(p.versions || []).map(escapeHtml).join(', ') || '—'}</td>
+      </tr>`).join('');
   }
 
   function histDetailRow(e) {
