@@ -81,12 +81,19 @@
           <div class="scan-form">
             <input type="text" id="installed-project" class="mono" placeholder="예: C:/Users/me/my-project">
             <button class="btn primary" id="installed-load-btn">불러오기</button>
+            <button class="btn" id="installed-global-btn" title="터미널 동기화 기록과 무관하게 이 PC의 전역 npm 패키지를 확실히 본다">전역 npm 보기</button>
             <button class="btn" id="installed-monitor-btn" disabled>취약 버전 모니터링</button>
           </div>
           <div id="installed-status-area"></div>
           <div id="installed-monitor-status"></div>
         </div>
         <div class="panel" id="installed-panel" style="display:none;">
+          <div id="installed-synced-notice" class="notice" style="display:none; margin-bottom:14px;">
+            <span class="n-icon">i</span>
+            <span>이 목록은 터미널(<span class="mono">safe-npm install</span>)에서 동기화된 기록입니다 —
+              서버가 실제 폴더 경로를 몰라 <b>여기서 설치를 실행할 수 없습니다</b>.
+              실시간으로 보거나 직접 설치하려면 위 "프로젝트 경로"에 폴더를 입력하세요.</span>
+          </div>
           <div class="table-wrap">
             <table class="pkg-table">
               <thead><tr><th>Package</th><th>Installed</th><th>Latest</th><th>알려진 취약점</th><th>마지막 판정</th><th>Cooldown</th><th>Action</th></tr></thead>

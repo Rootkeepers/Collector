@@ -49,15 +49,10 @@
     renderDetail('explorer-detail-panel');
   }
 
-  /* 경로를 비워 둔 채 설치를 누르면 서버가 쓰는 기본 대상이 전역인지 여부.
-   * /api/health 가 알려 준다 — 전역이면 설치 전에 확인을 받는다. */
-  let defaultScopeIsGlobal = false;
-
   /* =========================================================
    * Connection check
    * ========================================================= */
   fetch('/api/health').then(r => r.json()).then(d => {
-    defaultScopeIsGlobal = d.default_scope === 'global';
     const pill = document.getElementById('conn-pill'), label = document.getElementById('conn-label');
     if (d.ok && d.github_token_status === 'set') { pill.className = 'status-pill ok'; label.textContent = '서버 연결됨 · TOKEN OK'; }
     else if (d.ok && d.github_token_status === 'placeholder') { pill.className = 'status-pill bad'; label.textContent = 'GITHUB_TOKEN이 예시 값 그대로임 (.env 확인)'; }
@@ -822,6 +817,14 @@
   let installedLoadedOnce = false;
   let installedRows = [];
   let installedActionState = {};
+  // "directory" | "global" | "synced" — 지금 표에 뜬 목록의 출처. synced는
+  // 터미널 동기화 기록이라 서버가 실제 경로를 몰라 여기서 설치를 못 한다.
+  let installedScope = 'directory';
+  // "전역 npm 보기" 버튼으로 강제한 상태인가. 동기화 기록이 하나라도 있으면
+  // 빈 입력만으로는 다시 전역으로 못 돌아오므로, 이 값이 true인 동안은
+  // 로드·모니터링·설치 요청 모두에 scope=global을 실어 서버의 자동 우선순위
+  // (synced 우선)를 무시하고 전역을 그대로 유지한다.
+  let installedForceGlobal = false;
   let installedAbortController = null;
 
   function cooldownBadgeHtml(row) {
@@ -848,6 +851,11 @@
   }
 
   function actionCellHtml(row, state) {
+    // 터미널 동기화 기록에는 실제 경로가 없다 — 여기서 설치·조기승인을
+    // 시작해도 서버가 어디에 npm install을 실행할지 알 수 없다.
+    if (installedScope === 'synced') {
+      return `<span style="color:var(--muted); font-size:12px;">터미널에서 관리됨 · 설치 불가</span>`;
+    }
     const needsRemediation = row.vulnerability?.status === 'VULNERABLE';
     const target = targetVersion(row);
     if (needsRemediation && !target) return `<span class="muted">공식 완화책 검토</span>`;
@@ -928,10 +936,18 @@
       updateInstalledRowCell(row);
     } else if (action === 'install') {
       const project = document.getElementById('installed-project').value.trim();
-      // 경로가 비어 있으면 서버는 기본 대상을 쓴다. 그게 전역이면 이 클릭이
-      // `npm install -g` 로 이 PC 전체의 설치 상태를 바꾼다 — 프로젝트 폴더
+      // installedScope는 지금 표에 실제로 뜬 목록의 출처다. synced면 이
+      // 경로에 오지 않는 게 정상이지만(actionCellHtml이 버튼을 안 보여준다),
+      // 상태가 남아 어긋난 클릭이 들어올 경우를 대비해 한 번 더 막는다.
+      if (installedScope === 'synced') {
+        alert('이 목록은 터미널에서 동기화된 데이터라 실제 경로를 모릅니다.\n위 "프로젝트 경로"에 폴더를 직접 입력한 뒤 설치하세요.');
+        updateInstalledRowCell(row);
+        return;
+      }
+      // 전역 범위(자동 기본값이든 "전역 npm 보기"로 강제한 것이든)면 이 클릭이
+      // `npm install -g`로 이 PC 전체의 설치 상태를 바꾼다 — 프로젝트 폴더
       // 안에서 끝나는 설치와 달리 영향 범위가 넓으므로 한 번 확인받는다.
-      if (!project && defaultScopeIsGlobal) {
+      if (installedScope === 'global') {
         const target = targetVersion(row);
         const proceed = confirm(
           `이 PC의 전역 npm 패키지를 실제로 변경합니다.\n\n`
@@ -944,9 +960,11 @@
       installedActionState[name] = { status: 'installing' };
       updateInstalledRowCell(row);
       try {
+        const body = { package: name, version: targetVersion(row), project };
+        if (installedForceGlobal) body.scope = 'global';
         const res = await fetch('/api/install', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ package: name, version: targetVersion(row), project }),
+          body: JSON.stringify(body),
         });
         const data = await res.json();
         if (data.blocked) installedActionState[name] = { status: 'blocked', message: data.message };
@@ -959,7 +977,8 @@
     }
   });
 
-  async function loadInstalled() {
+  async function loadInstalled(forceGlobal) {
+    installedForceGlobal = !!forceGlobal;
     // cancel any in-flight load so a stale (e.g. auto-triggered default-project)
     // response can never overwrite a newer explicit request's result
     if (installedAbortController) installedAbortController.abort();
@@ -968,12 +987,15 @@
 
     const statusArea = document.getElementById('installed-status-area');
     const projectInput = document.getElementById('installed-project');
+    if (installedForceGlobal) projectInput.value = ''; // 전역을 강제하면 입력창과 화면이 어긋나 보이지 않게 비운다
     const project = projectInput.value.trim();
     const loadBtn = document.getElementById('installed-load-btn');
     loadBtn.disabled = true;
     statusArea.innerHTML = `<div class="scan-status"><span class="spinner"></span><span>package.json 읽는 중 + 레지스트리 조회… (패키지 수에 따라 수 초~수십 초)</span></div>`;
     try {
-      const q = new URLSearchParams(); if (project) q.set('project', project);
+      const q = new URLSearchParams();
+      if (project) q.set('project', project);
+      if (installedForceGlobal) q.set('scope', 'global');
       const res = await fetch('/api/installed?' + q.toString(), { signal: myController.signal });
       const data = await res.json();
       if (installedAbortController !== myController) return; // superseded by a newer load
@@ -985,9 +1007,11 @@
       }
       installedLoadedOnce = true;
       installedRows = data.packages;
+      installedScope = data.scope || 'directory';
       installedActionState = {};
       if (!project) projectInput.placeholder = data.project;
       document.getElementById('installed-panel').style.display = 'block';
+      document.getElementById('installed-synced-notice').style.display = installedScope === 'synced' ? 'flex' : 'none';
       document.getElementById('installed-monitor-btn').disabled = false;
       renderInstalledTable();
       loadMonitorSnapshot(project);
@@ -998,7 +1022,8 @@
       if (installedAbortController === myController) loadBtn.disabled = false;
     }
   }
-  document.getElementById('installed-load-btn').addEventListener('click', loadInstalled);
+  document.getElementById('installed-load-btn').addEventListener('click', () => loadInstalled(false));
+  document.getElementById('installed-global-btn').addEventListener('click', () => loadInstalled(true));
 
   function applyMonitorSnapshot(monitor) {
     if (!monitor || !Array.isArray(monitor.packages)) return;
@@ -1011,7 +1036,9 @@
 
   async function loadMonitorSnapshot(project) {
     try {
-      const q = new URLSearchParams(); if (project) q.set('project', project);
+      const q = new URLSearchParams();
+      if (project) q.set('project', project);
+      if (installedForceGlobal) q.set('scope', 'global');
       const data = await fetch('/api/monitor?' + q.toString()).then(r => r.json());
       if (data.ok && data.monitor) applyMonitorSnapshot(data.monitor);
     } catch { /* 저장된 스냅샷이 없어도 설치 목록은 그대로 쓴다 */ }
@@ -1024,9 +1051,11 @@
     area.innerHTML = '<div class="scan-status"><span class="spinner"></span><span>OSV에서 설치 버전을 모니터링 중…</span></div>';
     try {
       const project = document.getElementById('installed-project').value.trim();
+      const body = { project };
+      if (installedForceGlobal) body.scope = 'global';
       const data = await fetch('/api/monitor', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project }),
+        body: JSON.stringify(body),
       }).then(r => r.json());
       if (data.packages) applyMonitorSnapshot(data);
       else area.innerHTML = `<div class="scan-error"><b>모니터링 실패</b> — ${escapeHtml(data.error || data.reason || '알 수 없는 오류')}</div>`;
