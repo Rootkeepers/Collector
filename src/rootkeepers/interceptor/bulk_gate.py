@@ -165,7 +165,8 @@ def _package_key(package: dict[str, Any]) -> tuple[str, str]:
 
 
 def review_new_packages(
-    project_dir: Path, before: list[dict[str, Any]], *, command: str
+    project_dir: Path, before: list[dict[str, Any]], *, command: str,
+    already_verified: set[tuple[str, str]] | None = None,
 ) -> bool:
     """설치 후 lock을 다시 읽어, **새로 들어온 패키지만** 점검한다.
 
@@ -185,12 +186,17 @@ def review_new_packages(
         project_dir: package.json이 있는 디렉터리.
         before: 설치 **전** ``collect_lock_packages()`` 결과.
         command: 표시용 커맨드 문자열.
+        already_verified: 이미 계보(Track A/B/C)까지 검증을 마친 (name, version)
+            집합 — 지목 설치의 대상 자신. react처럼 전이 의존성이 0개인
+            패키지는 "새로 들어온 것"이 곧 지목한 패키지 자신이 되어, 방금
+            [PASS] 판정을 받은 패키지를 이 함수가 "계보 검증 안 됨"으로 다시
+            보고하는 모순이 생겼다. 이미 검증된 것은 여기서 제외한다.
 
     Returns:
         strict 모드에서 새 취약 패키지가 들어왔으면 False. 그 외에는 True.
         설치는 이미 끝났으므로 이 값은 종료 코드에만 반영된다.
     """
-    seen = {_package_key(item) for item in before}
+    seen = {_package_key(item) for item in before} | (already_verified or set())
     added = [item for item in collect_lock_packages(project_dir)
              if _package_key(item) not in seen]
     if not added:

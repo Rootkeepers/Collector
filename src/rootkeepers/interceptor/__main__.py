@@ -122,9 +122,17 @@ def _run(args: list[str]) -> int:
     _sync_after_install(project_dir)
 
     # 계보를 검증한 것은 지목한 패키지 하나뿐이다. 그 패키지가 함께 끌고 온
-    # 서브트리는 여기서 처음 드러난다.
+    # 서브트리는 여기서 처음 드러난다. 지목한 패키지 자신은 이미 위에서
+    # Track A/B/C까지 검증했으므로(react처럼 전이 의존성이 0개면 "새로 들어온
+    # 것"이 곧 그 패키지 자신이 된다) 여기서 다시 "미검사"로 보고하지 않는다.
+    verified = {
+        (str(result.scan["package"]["name"]), str(result.scan["package"]["version"]))
+        for result in results
+        if result.scan and result.scan.get("package", {}).get("name") is not None
+        and result.scan.get("package", {}).get("version") is not None
+    }
     command = f"npm install {' '.join(targets)}"
-    if not review_new_packages(project_dir, before, command=command):
+    if not review_new_packages(project_dir, before, command=command, already_verified=verified):
         return 1
     return returncode
 

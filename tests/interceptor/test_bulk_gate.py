@@ -382,6 +382,32 @@ def test_reviews_only_the_subtree_that_arrived(lock_project, monkeypatch, capsys
     assert "계보 검증(Track A/B/C)" in out
 
 
+def test_already_verified_target_is_not_reported_as_unchecked(
+    lock_project, monkeypatch, capsys
+):
+    """전이 의존성이 0개인 패키지(예: react)를 지목 설치하면, lock 변화분의
+    전부가 그 패키지 자신이 된다. 그 패키지는 이미 위에서 Track A/B/C까지
+    검증했으므로([PASS] 판정이 이미 찍혔다) 여기서 "계보 검증 안 됨"으로
+    다시 보고하면 방금 찍힌 판정과 모순된다."""
+    _write_lock(lock_project, {
+        "lockfileVersion": 3,
+        "packages": {
+            "node_modules/express": {"version": "4.18.2"},
+            "node_modules/react": {"version": "19.2.8"},
+        },
+    })
+    before = [{"name": "express", "version": "4.18.2", "dev": False}]
+    monkeypatch.setattr(bulk_gate, "scan_packages",
+                        lambda pkgs, **kw: pytest.fail("이미 검증된 패키지를 다시 OSV로 조회했다"))
+
+    result = bulk_gate.review_new_packages(
+        lock_project, before, command="npm install react",
+        already_verified={("react", "19.2.8")},
+    )
+    assert result is True
+    assert capsys.readouterr().out == ""
+
+
 def test_no_new_packages_prints_nothing(lock_project, monkeypatch, capsys):
     """이미 최신인 프로젝트에서 install을 다시 쳤을 때 잡음을 만들지 않는다."""
     before = [{"name": "express", "version": "4.18.2", "dev": False}]
