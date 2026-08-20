@@ -53,6 +53,7 @@ from rootkeepers.analysis.source_sast import semgrep_available  # noqa: E402
 
 DEFAULT_PROJECT_DIR = project_dir()
 INSTALL_TIMEOUT_SEC = 180
+MAX_JSON_BODY_BYTES = 5 * 1024 * 1024
 
 
 def _semgrep_available() -> bool:
@@ -508,9 +509,27 @@ class Handler(BaseHTTPRequestHandler):
         self._send_file(file_path, content_type)
 
     def _read_json_body(self) -> dict:
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        raw_length = self.headers.get("Content-Length", "0") or "0"
+        try:
+            length = int(raw_length)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Content-Length가 올바른 정수가 아닙니다.") from exc
+        if length < 0:
+            raise ValueError("Content-Length는 음수일 수 없습니다.")
+        if length > MAX_JSON_BODY_BYTES:
+            raise ValueError(
+                f"JSON body가 허용 크기({MAX_JSON_BODY_BYTES} bytes)를 초과했습니다."
+            )
         raw = self.rfile.read(length) if length else b"{}"
-        return json.loads(raw.decode("utf-8") or "{}")
+        if len(raw) != length:
+            raise ValueError("JSON body가 Content-Length보다 짧습니다.")
+        try:
+            payload = json.loads(raw.decode("utf-8") or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("JSON body를 해석할 수 없습니다.") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("JSON body는 객체여야 합니다.")
+        return payload
 
     def do_POST(self):  # noqa: N802
         parsed = urlparse(self.path)

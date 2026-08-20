@@ -3,8 +3,9 @@
 npm install 요청을 가로채 Track A/B/C 수집기가 만든 계보(lineage)를 기반으로
 트러스트 스코어를 판정한 뒤, PASS인 경우에만 실제 npm에 설치를 위임한다.
 
-install/i 서브커맨드만 검사 대상으로 가로채고, 그 외 서브커맨드(run, ci,
-publish 등)는 전부 그대로 npm에 통과시킨다 (npq-hero와 동일한 설계 원칙).
+install과 공식 별칭(add/i/in/ins 등)은 검사 대상으로 가로채고, 그 외
+서브커맨드(run, publish 등)는 그대로 npm에 통과시킨다. ``npm ci``는 lock
+전체 사전 점검 경로를 사용한다.
 
 사용 예:
     $ safe-npm install lodash react@18
@@ -97,10 +98,26 @@ def find_real_npm() -> str:
     return npm_path
 
 
+_INSTALL_OPTIONS_WITH_VALUE = {
+    # npm install options (npm 11). Unknown options deliberately stay out of
+    # this set: treating an unknown boolean as value-taking could skip the
+    # actual package that follows it and bypass the install gate.
+    "--install-strategy", "--omit", "--include", "--allow-git", "--before",
+    "--cpu", "--os", "--libc", "--workspace",
+    # Common npm-wide configuration options accepted by install.
+    "--prefix", "--registry", "--cache", "--userconfig", "--tag",
+    "--loglevel", "--script-shell", "--node-options", "--audit-level",
+    "--auth-type", "--scope", "--otp", "--provenance-file", "--save-prefix",
+}
+_INSTALL_SHORT_OPTIONS_WITH_VALUE = {"-w", "-C"}
+
+
 def parse_install_targets(args: list[str]) -> list[str]:
     """install 서브커맨드 인자에서 패키지명@버전 목록을 추출한다.
 
-    -g, --save-dev 같은 플래그는 제외하고 실제 패키지 명세만 골라낸다.
+    -g, --save-dev 같은 플래그와 ``--workspace app``처럼 옵션에 딸린 값을
+    제외하고 실제 패키지 명세만 골라낸다. ``--`` 뒤의 값은 전부 위치 인자로
+    취급한다.
 
     Args:
         args: "install" 뒤에 오는 인자 목록.
@@ -108,7 +125,30 @@ def parse_install_targets(args: list[str]) -> list[str]:
     Returns:
         패키지 명세 문자열 목록 (예: ["lodash", "react@18"]).
     """
-    return [a for a in args if not a.startswith("-")]
+    targets: list[str] = []
+    consume_value = False
+    positional_only = False
+    for arg in args:
+        if consume_value:
+            consume_value = False
+            continue
+        if positional_only:
+            targets.append(arg)
+            continue
+        if arg == "--":
+            positional_only = True
+            continue
+        if arg.startswith("--"):
+            option, separator, _value = arg.partition("=")
+            if not separator and option in _INSTALL_OPTIONS_WITH_VALUE:
+                consume_value = True
+            continue
+        if arg.startswith("-"):
+            if arg in _INSTALL_SHORT_OPTIONS_WITH_VALUE:
+                consume_value = True
+            continue
+        targets.append(arg)
+    return targets
 
 
 _EXACT_VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-+]*)?$")

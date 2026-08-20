@@ -27,6 +27,13 @@ except ImportError:
     from rootkeepers.interceptor.bulk_gate import gate_bulk_install, review_new_packages
 
 SYNC_FLAG = "--trustgate-sync"
+INSTALL_COMMANDS = {
+    # Official aliases printed by `npm install --help` (npm 11). Every alias
+    # reaches the same npm install implementation and therefore must pass the
+    # same TrustGate checks; otherwise `npm add <package>` bypasses the gate.
+    "install", "add", "i", "in", "ins", "inst", "insta", "instal",
+    "isnt", "isnta", "isntal", "isntall",
+}
 
 
 def _sync_inventory(project_dir: Path | None = None) -> int:
@@ -95,12 +102,12 @@ def _run(args: list[str]) -> int:
     if args[0] == "ci":
         return _run_bulk(args, "npm ci")
 
-    if args[0] not in ("install", "i"):
+    if args[0] not in INSTALL_COMMANDS:
         return run_real_npm(args)
 
     targets = parse_install_targets(args[1:])
     if not targets:
-        return _run_bulk(args, "npm install")
+        return _run_bulk(args, f"npm {args[0]}")
 
     allowed, results = gate_install(targets)
     if not allowed:
