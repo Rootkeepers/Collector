@@ -881,7 +881,7 @@
 
   /* =========================================================
    * Installed Packages — real package.json/package-lock.json read +
-   * cooldown-aware early-approval install (mirrors cooldown_gate.gate_package())
+   * cooldown-aware early-approval install
    * ========================================================= */
   let installedLoadedOnce = false;
   let installedRows = [];

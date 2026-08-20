@@ -324,10 +324,10 @@ def list_installed(project_dir: Path) -> dict:
 def list_installed_from_sync(project_key: str, project_name: str) -> dict:
     """터미널(safe-npm install)이 동기화해 둔 프로젝트의 패키지 목록을 보여준다.
 
-    서버는 이 프로젝트의 실제 폴더 경로를 모른다 — inventory.py의
-    ``_project_identity()``가 개인정보 보호를 위해 경로 대신 이름과 해시만
-    전송하기 때문이다. 그래서 파일을 다시 읽는 대신, 동기화 시점에 이미 전송된
-    이름·버전을 그대로 쓴다.
+    지금 읽을 수 있는 실제 폴더가 없을 때만 여기로 온다. 두 경우다 —
+    콘솔이 원격이라 경로를 아예 안 받았거나(reporting.report_inventory 참고),
+    받았지만 그 폴더의 package.json이 더 이상 없거나. 그래서 파일을 다시 읽는
+    대신 동기화 시점에 전송된 이름·버전을 그대로 쓴다.
 
     이 뷰에서는 실제로 설치를 실행할 수 없다 — cd할 실제 경로가 없다.
     프론트엔드가 ``scope == "synced"``를 보고 설치 버튼을 감춘다.
@@ -360,10 +360,14 @@ def _resolve_installed_target(project: str, *, force_global: bool = False) -> tu
         if synced:
             # 같은 PC에서 동기화된 기록에는 실제 경로가 함께 저장된다. 그러면
             # 사용자가 경로를 다시 입력할 이유가 없다 — 평범한 폴더 대상과
-            # 똑같이 취급해서 설치·모니터링이 그대로 열리게 한다. 폴더가 그새
-            # 사라졌다면 옛 스냅샷만 보여 주는 "synced"로 남는다.
+            # 똑같이 취급해서 설치·모니터링이 그대로 열리게 한다.
+            #
+            # 폴더가 있는지가 아니라 package.json 이 있는지로 판단한다. 폴더만
+            # 보고 넘기면, 프로젝트를 지웠거나 package.json 만 사라진 경우에
+            # list_installed()가 FileNotFoundError를 던져 화면이 "불러오기 실패"가
+            # 된다 — 그럴 땐 옛 스냅샷이라도 보여 주는 편이 낫다.
             path = synced.get("project_path")
-            if path and Path(path).is_dir():
+            if path and (Path(path) / "package.json").is_file():
                 return "directory", Path(path)
             return "synced", synced
     return ("global" if is_global_scope(DEFAULT_PROJECT_DIR) else "directory"), DEFAULT_PROJECT_DIR

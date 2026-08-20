@@ -90,7 +90,11 @@ def _store_locally(path: str, payload: dict) -> bool:
             packages = payload.get("packages")
             if not key or not isinstance(packages, list):
                 return False
-            store.save_inventory(payload.get("project"), key, packages)
+            # 이 폴백은 정의상 같은 PC의 DB에 직접 쓴다 — 경로를 빠뜨리면
+            # 콘솔이 꺼져 있는 동안 동기화된 프로젝트만 나중에 화면에서
+            # 경로를 다시 물어보게 된다.
+            store.save_inventory(payload.get("project"), key, packages,
+                                 project_path=payload.get("project_path"))
             return True
     except Exception as exc:  # noqa: BLE001
         # 저장 실패도 설치 흐름을 막지 않는다. 다만 조용히 삼키면 원인을 못 찾는다.
