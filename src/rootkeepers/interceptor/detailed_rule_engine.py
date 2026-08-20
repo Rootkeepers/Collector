@@ -278,6 +278,12 @@ def evidence_from_lineage(report: Mapping[str, Any]) -> dict[str, Any]:
             "oidc_workflow": oidc.get("subject_workflow"),
             "issuer": oidc.get("issuer"),
             "expected_issuers": ["https://token.actions.githubusercontent.com"],
+            # Missing builder identity is unknown, not suspicious. A present
+            # identity outside the documented GitHub-hosted runner namespace
+            # is surfaced as a separate low-weight signal.
+            "official_runner": _is_official_github_actions_runner(
+                predicate.get("builder_id")
+            ),
         },
         "unexpected_builder": {
             "baseline_attestations": npm_baseline.get("attestations_present"),
@@ -335,6 +341,7 @@ def _annotate_evidence_status(evidence: dict[str, Any]) -> dict[str, Any]:
             "provenance_entry_point": "provenance workflow path unavailable",
             "oidc_workflow": "OIDC workflow identity unavailable",
             "issuer": "OIDC issuer unavailable",
+            "official_runner": "provenance builder.id unavailable",
         },
         "unexpected_builder": {
             "baseline_builder_id": "historical SLSA builder.id unavailable",
@@ -802,6 +809,14 @@ def _attestation_present(artifact: Mapping[str, Any]) -> bool | None:
     if value == "ABSENT":
         return False
     return None
+
+
+def _is_official_github_actions_runner(builder_id: Any) -> bool | None:
+    """Classify the known GitHub-hosted runner builder without guessing."""
+    normalized = _normalize_builder(_string(builder_id))
+    if not normalized:
+        return None
+    return normalized.startswith("https://github.com/actions/runner/")
 
 
 def _first_nonempty_string(values: Sequence[Any] | Any) -> str:

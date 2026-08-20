@@ -1,0 +1,10 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  python-tests:
+    uses: ./.github/workflows/reusable-python-tests.yml

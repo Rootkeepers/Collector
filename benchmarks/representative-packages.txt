@@ -1,0 +1,2 @@
+# Pinned, benign control package for local performance baselines.
+lodash@4.17.21

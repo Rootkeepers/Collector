@@ -111,7 +111,7 @@
       renderCurrentView();
     } catch (err) {
       clearInterval(timer);
-      statusArea.innerHTML = `<div class="scan-error"><b>서버에 연결할 수 없음</b> — <span class="mono">python webapp/server.py</span> 실행 여부를 확인하라. (${escapeHtml(String(err))})</div>`;
+      statusArea.innerHTML = `<div class="scan-error"><b>서버에 연결할 수 없습니다.</b> — <span class="mono">trustgate up</span>으로 콘솔을 시작했는지 확인하세요. (${escapeHtml(String(err))})</div>`;
     } finally { scanBtn.disabled = false; }
   }
 
@@ -121,7 +121,7 @@
     const bandCounts = summarizeRuleBands(rules);
     const limited = (data.rules || []).filter(r => r.evidence_limitations && r.evidence_limitations.length);
     let scenario = `실제 스캔 · ${new Date(data.generated_at || Date.now()).toLocaleString('ko-KR')}`;
-    if (limited.length === RULES.length) scenario += ' — baseline 이력이 없어 6개 규칙 모두 비교 기준선이 부족하다 (미구현 기능).';
+    if (limited.length === RULES.length) scenario += ' — 모든 규칙에 일부 증거 제한이 있어 결과를 보수적으로 해석해야 합니다.';
     return {
       id: `live:${data.package.name}@${data.package.version}:${Date.now()}`,
       name: data.package.name, version: data.package.version, source: 'live', scenario, rules,
@@ -236,7 +236,7 @@
 
   function renderDashboardRecent() {
     const area = document.getElementById('dashboard-recent');
-    if (!liveResults.length) { area.innerHTML = '<div class="no-selection">아직 스캔 기록이 없다.</div>'; return; }
+    if (!liveResults.length) { area.innerHTML = '<div class="no-selection">아직 스캔 기록이 없습니다.</div>'; return; }
     const p = liveResults[0];
     area.innerHTML = `
       <div class="pkg-header"><span class="title">${fmtSpec(p.name, p.version)}</span><span class="verdict-pill ${p.decision.verdict}">${p.decision.verdict} · ${p.decision.score}/100</span></div>
@@ -568,7 +568,7 @@
     function currentData() {
       return activeRule === 'package'
         ? { name: p.name, version: p.version }
-        : (p.evidenceByRule && p.evidenceByRule[activeRule]) || { note: '이 규칙에 대한 증거 필드가 없다.' };
+        : (p.evidenceByRule && p.evidenceByRule[activeRule]) || { note: '이 규칙에 대한 증거 필드가 없습니다.' };
     }
     function refreshJson() {
       body.querySelector('#inspector-json').innerHTML = jsonHighlight(currentData(), body.querySelector('#json-search').value.trim());
@@ -673,7 +673,7 @@
       renderHistTable(d.events);
     } catch (err) {
       document.getElementById('hist-empty').style.display = 'block';
-      document.getElementById('hist-empty').textContent = '이력을 불러오지 못했다: ' + err;
+      document.getElementById('hist-empty').textContent = '이력을 불러오지 못했습니다: ' + err;
     }
   }
 
@@ -783,7 +783,7 @@
     const timing = e.timing && Number.isFinite(e.timing.total) ?`<div class="track-chips"><span class="track-chip">총 ${e.timing.total}ms</span><span class="track-chip">npm ${e.timing.npm}ms</span><span class="track-chip">github ${e.timing.github}ms</span><span class="track-chip">sigstore ${e.timing.sigstore}ms</span></div>` : '';
     return `<tr class="hist-detail"><td colspan="7"><div class="hist-detail-inner">
         <div class="hist-reason">${escapeHtml(e.reason || '')}</div>
-        ${bars || '<div class="empty-hint">규칙 정보가 없다.</div>'}
+        ${bars || '<div class="empty-hint">규칙 정보가 없습니다.</div>'}
         ${tracks}${timing}
       </div></td></tr>`;
   }

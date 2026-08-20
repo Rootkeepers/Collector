@@ -28,3 +28,11 @@ def test_dashboard_reconstructs_rule_band_counts_for_live_and_stored_scans() -> 
     assert source.count("const bandCounts = summarizeRuleBands(rules);") == 2
     assert "unverifiableCount: values.filter(rule => rule.band === 'UNVERIFIABLE').length" in source
     assert "activatedCount: 0, riskBandCount: 0" not in source
+
+
+def test_dashboard_does_not_describe_collected_baselines_as_unimplemented() -> None:
+    source = APP_JS.read_text(encoding="utf-8")
+
+    assert "미구현 기능" not in source
+    assert "python webapp/server.py" not in source
+    assert "trustgate up" in source

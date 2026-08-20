@@ -52,7 +52,7 @@
           <div class="panel">
             <h2>최근 스캔 개요</h2>
             <p class="subhead">가장 최근 실행한 스캔</p>
-            <div id="dashboard-recent"><div class="no-selection">아직 스캔 기록이 없다.</div></div>
+            <div id="dashboard-recent"><div class="no-selection">아직 스캔 기록이 없습니다.</div></div>
           </div>
         </div>
       </section>
@@ -67,7 +67,7 @@
               <tbody id="explorer-tbody"></tbody>
             </table>
           </div>
-          <div id="explorer-empty" class="empty-hint">아직 실행한 스캔이 없다. Dashboard에서 패키지를 스캔하라.</div>
+          <div id="explorer-empty" class="empty-hint">아직 실행한 스캔이 없습니다. Dashboard에서 패키지를 먼저 스캔하세요.</div>
         </div>
         <div id="explorer-detail-panel"></div>
       </section>
@@ -130,7 +130,7 @@
               <tbody id="hist-tbody"></tbody>
             </table>
           </div>
-          <div id="hist-empty" class="empty-hint" style="display:none;">아직 기록이 없다.</div>
+          <div id="hist-empty" class="empty-hint" style="display:none;">아직 기록이 없습니다.</div>
         </div>
       </section>
 
@@ -138,6 +138,13 @@
     </main>
   </div>
 </div>
+
+<nav class="mobile-nav" aria-label="주요 화면">
+  <button class="nav-item active" data-view="dashboard"><span class="ic">◆</span><span>Dashboard</span></button>
+  <button class="nav-item" data-view="explorer"><span class="ic">▤</span><span>Explorer</span></button>
+  <button class="nav-item" data-view="installed"><span class="ic">⬇</span><span>Installed</span></button>
+  <button class="nav-item" data-view="history"><span class="ic">▧</span><span>History</span></button>
+</nav>
 
 <div id="tooltip"><div class="tt-title"></div><div class="tt-body"></div></div>
 

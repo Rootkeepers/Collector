@@ -1,6 +1,21 @@
 import json
+import os
+from urllib.parse import quote
 
 import requests
+
+
+REGISTRY_URL = "https://registry.npmjs.org"
+
+
+def _registry_timeout_seconds() -> float:
+    try:
+        return max(1.0, float(os.getenv("TRUSTGATE_NPM_TIMEOUT_SECONDS", "20")))
+    except ValueError:
+        return 20.0
+
+
+REGISTRY_TIMEOUT_SECONDS = _registry_timeout_seconds()
 
 
 def fetch_package_data(package_name: str) -> dict | None:
@@ -13,14 +28,24 @@ def fetch_package_data(package_name: str) -> dict | None:
     Returns:
         원본 JSON 데이터. 실패 시 None.
     """
-    url = f"https://registry.npmjs.org/{package_name}"
-    response = requests.get(url)
-
-    if response.status_code != 200:
-        print(f"npm 레지스트리 요청 실패 (Status Code: {response.status_code})")
+    if not isinstance(package_name, str) or not package_name.strip():
+        print("npm 패키지명이 비어 있습니다.")
         return None
-
-    return response.json()
+    url = f"{REGISTRY_URL}/{quote(package_name.strip(), safe='')}"
+    try:
+        response = requests.get(url, timeout=REGISTRY_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as exc:
+        print(f"npm 레지스트리 요청 실패: {exc}")
+        return None
+    except (ValueError, TypeError) as exc:
+        print(f"npm 레지스트리 응답을 해석하지 못했습니다: {exc}")
+        return None
+    if not isinstance(data, dict):
+        print("npm 레지스트리 응답이 JSON 객체가 아닙니다.")
+        return None
+    return data
 
 
 def collect_package_metadata(data: dict, latest_version: str) -> dict:

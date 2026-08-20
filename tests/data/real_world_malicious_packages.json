@@ -1,0 +1,8 @@
+[
+  {
+    "name": "ua-parser-js",
+    "version": "0.7.29",
+    "source": "https://github.com/advisories/GHSA-pjwm-rvh2-c87w",
+    "purpose": "Pinned real-world compromised npm release for isolated static-analysis validation. Never execute its lifecycle scripts."
+  }
+]

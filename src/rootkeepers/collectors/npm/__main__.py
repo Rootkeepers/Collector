@@ -1,12 +1,11 @@
-"""
-Track A — npm 수집기 실행 진입점
+"""Track A — npm metadata collector command."""
 
-사용법:
-    python main.py [패키지명]
+from __future__ import annotations
 
-패키지명을 생략하면 기본값(lodash)으로 테스트 실행합니다.
-"""
+import argparse
+import json
 import sys
+from pathlib import Path
 
 try:
     from .crawler import (
@@ -80,7 +79,35 @@ def run(package_name: str, version: str | None = None) -> dict | None:
     return result
 
 
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m rootkeepers.collectors.npm",
+        description="npm 릴리스 메타데이터와 공급망 기준선을 수집합니다.",
+    )
+    parser.add_argument("package", help="npm 패키지명, 예: lodash 또는 @scope/name")
+    parser.add_argument("version", nargs="?", help="정확한 버전. 생략하면 latest")
+    parser.add_argument(
+        "-o", "--output", type=Path,
+        help="JSON 파일 경로. 생략하면 표준 출력에만 표시합니다.",
+    )
+    args = parser.parse_args(argv)
+
+    result = collect_npm_release(args.package, args.version, output_filename=None)
+    if result is None:
+        return 1
+    rendered = json.dumps(result, indent=2, ensure_ascii=False)
+    if args.output is None:
+        print(rendered)
+        return 0
+    try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"결과 파일을 쓸 수 없습니다: {exc}", file=sys.stderr)
+        return 1
+    print(f"[수집 완료] {args.output}")
+    return 0
+
+
 if __name__ == "__main__":
-    target_package = sys.argv[1] if len(sys.argv) > 1 else "lodash"
-    target_version = sys.argv[2] if len(sys.argv) > 2 else None
-    run(target_package, target_version)
+    raise SystemExit(main())

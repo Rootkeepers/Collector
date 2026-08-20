@@ -30,10 +30,17 @@ safe-npm-setup = "rootkeepers.interceptor.shim_installer:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-rootkeepers = ["analysis/rules/*.yml"]
+rootkeepers = [
+    "analysis/rules/*.yml",
+    "dashboard/static/*.html",
+    "dashboard/static/*.css",
+    "dashboard/static/*.js",
+    "dashboard/static/fonts/*.woff2",
+]
 
 [tool.pytest.ini_options]
 markers = [
     "live_ai: 실제 OpenAI Responses API를 한 번 호출하는 선택 통합 테스트",
     "live_groq: Groq Free tier API를 한 번 호출하는 선택 통합 테스트",
+    "live_malware: 격리 환경에서만 실행하는 선택형 악성 패키지 정적 분석 테스트",
 ]
