@@ -432,6 +432,31 @@
   }
 
   function renderOverviewTab(body, p) {
+    // 계보 판정(PASS/RISK/UNVERIFIABLE)은 6규칙만 본다 — 쿨다운과 무관하다.
+    // 그래서 "PASS면 설치 버튼"을 그냥 붙이면 쿨다운 자체가 무력화된다.
+    // 여기서는 Installed Packages의 "검증 후 설치"와 정확히 같은 조건
+    // (PASS && 쿨다운 통과)일 때만 직접 설치를 허용한다. 신선한 버전은
+    // 조기 승인(기준선+신버전 둘 다 PASS) 경로로 안내한다 — 그게 유일하게
+    // 설계된 우회로다.
+    const canInstallNow = p.source === 'live' && p.decision.verdict === 'PASS' && p.cooldown && p.cooldown.passed;
+    let installSection = '';
+    if (canInstallNow) {
+      installSection = `
+        <div class="install-from-scan" style="margin-top:14px;">
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="scan-install-project" class="mono" placeholder="설치할 프로젝트 경로" style="flex:1;">
+            <button class="btn primary" id="scan-install-btn">이 버전 설치</button>
+          </div>
+          <div id="scan-install-status" style="margin-top:8px;"></div>
+        </div>`;
+    } else if (p.source === 'live' && p.decision.verdict === 'PASS' && p.cooldown && !p.cooldown.passed) {
+      installSection = `
+        <div class="notice" style="margin-top:14px;">
+          <span class="n-icon">i</span>
+          <span>쿨다운 미경과라 여기서 바로 설치할 수 없습니다. 이미 쿨다운을 지난 구버전을 먼저 설치해 두면,
+            Installed Packages 화면에서 그 구버전을 기준으로 이 버전을 <b>조기 승인</b>할 수 있습니다.</span>
+        </div>`;
+    }
     body.innerHTML = `
       <div class="grid-2">
         <div>
@@ -440,10 +465,37 @@
           ${p.trackStatuses ? `<div class="track-chips">${Object.entries(p.trackStatuses).map(([k,v]) => `<span class="track-chip ${v}">${k}: ${v}</span>`).join('')}</div>` : ''}
           ${p.cooldown ? `<div class="track-chips"><span class="cooldown-badge ${p.cooldown.passed ? 'passed' : 'holding'}">${p.cooldown.passed ? '쿨다운 통과' : `쿨다운 중 · ${p.cooldown.remain_days != null ? p.cooldown.remain_days.toFixed(1) : '?'}일 남음`}</span></div>` : ''}
           ${p.timing && Number.isFinite(p.timing.total) ? `<div class="track-chips"><span class="track-chip">총 소요 ${p.timing.total}ms</span><span class="track-chip">npm ${p.timing.npm}ms</span><span class="track-chip">github ${p.timing.github}ms</span><span class="track-chip">sigstore ${p.timing.sigstore}ms</span></div>` : ''}
+          ${installSection}
         </div>
         <div class="gauge-wrap">${riskGaugeSvg(p.decision.score, p.decision.verdict)}<div><div class="verdict-pill ${p.decision.verdict}">${p.decision.verdict}</div><div class="gauge-label">보고 기준 ${BLOCK_THRESHOLD} · 실제 게이트 fail-closed</div></div></div>
       </div>
     `;
+    if (canInstallNow) {
+      body.querySelector('#scan-install-btn').addEventListener('click', async () => {
+        const projectInput = body.querySelector('#scan-install-project');
+        const project = projectInput.value.trim();
+        const statusArea = body.querySelector('#scan-install-status');
+        if (!project) {
+          statusArea.innerHTML = `<div class="scan-error">설치할 프로젝트 경로를 입력하세요.</div>`;
+          return;
+        }
+        const btn = body.querySelector('#scan-install-btn');
+        btn.disabled = true;
+        statusArea.innerHTML = `<div class="scan-status"><span class="spinner"></span><span>npm install 실행 중… (최대 3분)</span></div>`;
+        try {
+          const res = await fetch('/api/install', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ package: p.name, version: p.version, project }),
+          });
+          const data = await res.json();
+          if (data.blocked) statusArea.innerHTML = `<div class="install-result blocked">${escapeHtml(data.message || '차단됨')}</div>`;
+          else if (data.ok) statusArea.innerHTML = `<div class="install-result success">설치 완료 ✓ (exit 0)</div>`;
+          else statusArea.innerHTML = `<div class="install-result fail">설치 실패${data.returncode != null ? ` (exit ${data.returncode})` : ''}${data.error ? ` — ${escapeHtml(data.error)}` : ''}</div>`;
+        } catch (err) {
+          statusArea.innerHTML = `<div class="scan-error">서버에 연결할 수 없음 — ${escapeHtml(String(err))}</div>`;
+        } finally { btn.disabled = false; }
+      });
+    }
   }
 
   /* =========================================================
