@@ -608,16 +608,33 @@
     body.innerHTML = `
       <div class="report-toolbar">
         <span class="copy-flash" id="report-copy-flash">복사됨 ✓</span>
-        <button class="btn" id="report-open">에디터로 열기</button>
+        <button class="btn" id="report-open">새 탭에서 보기</button>
         <button class="btn" id="report-download">.md 다운로드</button>
         <button class="btn primary" id="report-copy">클립보드에 복사</button>
       </div>
       <textarea class="report-preview mono" id="report-preview" readonly></textarea>
     `;
     body.querySelector('#report-preview').value = md;
-    body.querySelector('#report-copy').addEventListener('click', () => {
-      navigator.clipboard && navigator.clipboard.writeText(md).catch(()=>{});
-      const f = body.querySelector('#report-copy-flash'); f.classList.add('show'); setTimeout(() => f.classList.remove('show'), 1400);
+    body.querySelector('#report-copy').addEventListener('click', async () => {
+      // 실패(권한 거부 등)를 삼키고 항상 "복사됨"을 띄우면, 클립보드에 아무것도
+      // 안 들어갔는데 사용자는 성공한 줄 알고 다른 곳에 붙여넣기를 시도하게 된다.
+      // 성공 여부를 그대로 반영하고, 최신 API가 막히면 레거시 execCommand로
+      // 한 번 더 시도한다.
+      let ok = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try { await navigator.clipboard.writeText(md); ok = true; } catch { /* 폴백으로 넘어간다 */ }
+      }
+      if (!ok) {
+        const ta = body.querySelector('#report-preview');
+        ta.select();
+        try { ok = document.execCommand('copy'); } catch { /* 아래에서 실패로 보고 */ }
+        ta.setSelectionRange(0, 0);
+      }
+      const f = body.querySelector('#report-copy-flash');
+      f.textContent = ok ? '복사됨 ✓' : '복사 실패 — 아래 미리보기에서 직접 선택하세요';
+      f.classList.toggle('fail', !ok);
+      f.classList.add('show');
+      setTimeout(() => f.classList.remove('show'), 1800);
     });
     body.querySelector('#report-download').addEventListener('click', () => {
       const blob = new Blob([md], { type: 'text/markdown' }); const url = URL.createObjectURL(blob);

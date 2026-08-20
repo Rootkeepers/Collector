@@ -284,6 +284,7 @@ textarea.report-preview {
 }
 .copy-flash { font-size: 12px; color: var(--good); opacity: 0; transition: opacity 0.2s; }
 .copy-flash.show { opacity: 1; }
+.copy-flash.fail { color: var(--critical); }
 
 /* ---------------- Installed packages ---------------- */
 .cooldown-badge { font-family: 'JBM', monospace; font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
