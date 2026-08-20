@@ -34,6 +34,20 @@ from datetime import datetime, timezone
 CONSOLE_URL = os.getenv("TRUSTGATE_CONSOLE_URL", "http://127.0.0.1:8000").strip().rstrip("/")
 REPORT_TIMEOUT_SEC = 3
 
+#: 같은 PC의 콘솔로 볼 호스트들. 여기에 해당하면 프로젝트 절대경로를 함께
+#: 보낸다 — 콘솔이 그 경로를 알아야 화면에서 바로 설치·조기승인을 할 수 있고,
+#: 같은 기계 안에서는 경로가 새로 노출되는 정보가 아니다. 원격 콘솔이면
+#: 예전처럼 폴더 이름과 해시만 보낸다.
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"}  # noqa: S104
+
+
+def _console_is_local() -> bool:
+    from urllib.parse import urlparse
+    try:
+        return (urlparse(CONSOLE_URL).hostname or "") in _LOCAL_HOSTS
+    except ValueError:
+        return False
+
 # CLI처럼 수명이 짧은 프로세스는 종료 시 데몬 스레드가 그대로 죽어 전송이
 # 유실된다. flush_reports()로 짧게 기다려 줄 수 있게 보관한다.
 _pending_lock = threading.Lock()
@@ -130,15 +144,25 @@ def report_event(event: str, scan: dict, extra: dict | None = None) -> None:
 
 
 def report_inventory(inventory: dict) -> None:
-    """이 PC에 설치된 패키지 목록(스냅샷)을 콘솔로 보낸다."""
+    """이 PC에 설치된 패키지 목록(스냅샷)을 콘솔로 보낸다.
+
+    프로젝트 절대경로는 콘솔이 같은 PC일 때만 싣는다. 콘솔이 경로를 알면
+    사용자가 화면에서 경로를 다시 입력하지 않아도 그 프로젝트에 설치·조기승인을
+    할 수 있다. 원격 콘솔에는 보내지 않는다 — 사용자 이름과 디렉터리 구조가
+    남의 기계에 남을 이유가 없다.
+    """
     if not CONSOLE_URL or not inventory:
         return
+
+    payload = dict(inventory)
+    if not _console_is_local():
+        payload.pop("project_path", None)
 
     def _send():
         _post("/api/ingest-inventory", {
             "source": _client_name(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            **inventory,
+            **payload,
         }, "인벤토리")
 
     _spawn(_send)

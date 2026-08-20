@@ -358,6 +358,13 @@ def _resolve_installed_target(project: str, *, force_global: bool = False) -> tu
     if is_global_scope(DEFAULT_PROJECT_DIR):
         synced = store.latest_synced_project()
         if synced:
+            # 같은 PC에서 동기화된 기록에는 실제 경로가 함께 저장된다. 그러면
+            # 사용자가 경로를 다시 입력할 이유가 없다 — 평범한 폴더 대상과
+            # 똑같이 취급해서 설치·모니터링이 그대로 열리게 한다. 폴더가 그새
+            # 사라졌다면 옛 스냅샷만 보여 주는 "synced"로 남는다.
+            path = synced.get("project_path")
+            if path and Path(path).is_dir():
+                return "directory", Path(path)
             return "synced", synced
     return ("global" if is_global_scope(DEFAULT_PROJECT_DIR) else "directory"), DEFAULT_PROJECT_DIR
 
@@ -724,7 +731,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "project_key/packages 가 필요합니다."})
                 return
             try:
-                n = store.save_inventory(payload.get("project"), key, packages)
+                # project_path는 콘솔이 같은 PC일 때만 실려 온다(없으면 None).
+                n = store.save_inventory(payload.get("project"), key, packages,
+                                         project_path=payload.get("project_path"))
             except Exception as exc:  # noqa: BLE001
                 self._send_json(200, {"ok": False, "error": str(exc)})
                 return

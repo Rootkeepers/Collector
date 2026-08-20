@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS monitor_runs (
 CREATE INDEX IF NOT EXISTS idx_monitor_project ON monitor_runs(project);
 CREATE INDEX IF NOT EXISTS idx_monitor_created ON monitor_runs(created_at);
 """)
+
+# 이미 만들어진 DB에는 이 컬럼이 없다. CREATE TABLE의 IF NOT EXISTS는 기존
+# 테이블을 건드리지 않으므로, 나중에 생긴 컬럼은 따로 붙여 줘야 한다.
+# (경로는 콘솔이 같은 PC일 때만 채워진다 — reporting.report_inventory 참고.)
+if "project_path" not in {r["name"] for r in _conn.execute("PRAGMA table_info(inventory)")}:
+    _conn.execute("ALTER TABLE inventory ADD COLUMN project_path TEXT")
+
 _conn.commit()
 
 
@@ -120,22 +127,28 @@ def record_event(event: str, scan: dict, source: str = "console", extra: dict | 
 
 
 @_with_db
-def save_inventory(project: str, project_key: str, packages: list) -> int:
+def save_inventory(project: str, project_key: str, packages: list,
+                   project_path: str | None = None) -> int:
     """한 프로젝트의 설치 목록을 통째로 교체한다(스냅샷). 증분이 아니라
-    전체 교체라 삭제된 패키지가 유령처럼 남지 않는다."""
+    전체 교체라 삭제된 패키지가 유령처럼 남지 않는다.
+
+    ``project_path``는 콘솔이 같은 PC일 때만 채워진다. 이 값이 있으면 화면이
+    경로를 다시 묻지 않고 그 프로젝트에 바로 설치할 수 있다.
+    """
     now = _now()
+    path = str(project_path)[:4096] if project_path else None
     with _conn:
         _conn.execute("DELETE FROM inventory WHERE project_key = ?", (project_key,))
         rows = [
-            (project_key, project, str(p.get("name"))[:214],
+            (project_key, project, path, str(p.get("name"))[:214],
              (str(p["version"])[:64] if p.get("version") else None),
              (str(p["spec"])[:64] if p.get("spec") else None),
              1 if p.get("dev") else 0, now)
             for p in packages if isinstance(p, dict) and p.get("name")
         ]
         _conn.executemany(
-            """INSERT INTO inventory (project_key, project, package_name, version, spec, dev, updated_at)
-               VALUES (?,?,?,?,?,?,?)""", rows)
+            """INSERT INTO inventory (project_key, project, project_path, package_name, version, spec, dev, updated_at)
+               VALUES (?,?,?,?,?,?,?,?)""", rows)
     return len(rows)
 
 
@@ -279,7 +292,7 @@ def latest_synced_project() -> dict[str, Any] | None:
     설치한 그 프로젝트"를 보여주는 게 대개 더 쓸모 있다.
     """
     row = _conn.execute(
-        """SELECT project_key, project, MAX(updated_at) updated_at
+        """SELECT project_key, project, project_path, MAX(updated_at) updated_at
            FROM inventory GROUP BY project_key ORDER BY updated_at DESC LIMIT 1"""
     ).fetchone()
     return dict(row) if row else None
