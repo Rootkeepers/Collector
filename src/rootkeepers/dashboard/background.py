@@ -125,6 +125,17 @@ def start(host: str, port: int, project: str = "") -> int:
               f"http://{_loopback(current['host'])}:{current['port']}).")
         return 0
 
+    # 우리 기록에는 없는데 그 포트에 이미 뭔가 응답하고 있는 경우(고아로 남은
+    # 예전 콘솔, 또는 남의 서비스). 이대로 띄우면 자식은 EADDRINUSE로 즉사하는데
+    # 아래 기동 확인은 **그 남의 서버**가 돌려주는 200을 보고 성공했다고 말한다.
+    # 스폰 전에 잡아야 "떴다"는 거짓말도, 죽을 프로세스도 안 만든다.
+    if _health_ok(host, port):
+        print(f"[ERROR] {_loopback(host)}:{port} 에 이미 다른 프로세스가 응답하고 있습니다.\n"
+              f"        (우리 PID 기록에는 없습니다 — 예전 콘솔이 고아로 남았을 수 있습니다)\n"
+              f"        다른 포트로 띄우거나(trustgate up --port {port + 1}), 그 프로세스를 정리하세요.",
+              file=sys.stderr)
+        return 1
+
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, "-m", _MODULE, "--host", host, "--port", str(port)]
     if project:
@@ -143,15 +154,20 @@ def start(host: str, port: int, project: str = "") -> int:
                                 stdin=subprocess.DEVNULL, **extra)
 
     # "떴다"고 말하기 전에 실제로 응답하는지 본다 — 포트 충돌로 즉사하는 경우가 흔하다.
+    #
+    # 죽었는지를 **먼저** 본다. 순서를 뒤집으면(예전 코드), 우리 자식이 이미
+    # 죽었는데 같은 포트의 다른 서버가 200을 돌려주는 순간 그걸 성공으로 읽고
+    # 죽은 pid를 찍으며 exit 0을 냈다. 위의 사전 점검이 대부분을 막지만, 스폰
+    # 직후에 남이 그 포트를 잡는 경우까지 닫으려면 이 순서가 필요하다.
     deadline = time.monotonic() + _START_TIMEOUT_SEC
     while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            break
         if _health_ok(host, port):
             print(f"TrustGate Scan Console (백그라운드) → http://{_loopback(host)}:{port}")
             print(f"  pid {proc.pid} · 로그 {LOG_FILE}")
             print("  정지: trustgate down")
             return 0
-        if proc.poll() is not None:
-            break
         time.sleep(0.2)
 
     # 자식이 아직 살아 있는데 실패로 단정하면 안 된다. 예전에는 여기서
