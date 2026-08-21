@@ -22,17 +22,21 @@ from typing import Any
 from rootkeepers.interceptor.global_npm import global_inventory, is_global_scope
 
 
-def _project_identity(project_dir: Path) -> tuple[str, str]:
-    """(표시용 이름, 안정적인 키)를 만든다.
+def _project_identity(project_dir: Path) -> tuple[str, str, str]:
+    """(표시용 이름, 안정적인 키, 절대경로)를 만든다.
 
-    절대경로를 그대로 서버에 보내면 사용자 이름·디렉터리 구조가 그대로
-    노출된다. 화면에는 폴더 이름만 보내고, 서로 다른 프로젝트가 같은 이름을
-    가질 때를 구분하기 위한 키는 경로의 해시로 만든다(경로 자체는 안 보냄).
+    화면에는 폴더 이름만 쓰고, 서로 다른 프로젝트가 같은 이름을 가질 때를
+    구분하기 위한 키는 경로의 해시로 만든다.
+
+    절대경로도 함께 돌려주지만, 이걸 실제로 **전송할지**는 여기서 정하지
+    않는다 — 콘솔이 같은 PC인지 원격인지에 따라 갈리는 판단이라 네트워크
+    경계를 소유한 ``reporting.report_inventory()``가 결정한다. 이 모듈은
+    사실만 모으고 공개 범위는 정하지 않는다.
     """
     resolved = project_dir.resolve()
     name = resolved.name or str(resolved)
     key = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:16]
-    return name, key
+    return name, key, str(resolved)
 
 
 def collect_inventory(project_dir: Path) -> dict[str, Any] | None:
@@ -83,7 +87,7 @@ def collect_inventory(project_dir: Path) -> dict[str, Any] | None:
         except (OSError, ValueError):
             pass
 
-    name, key = _project_identity(project_dir)
+    name, key, path = _project_identity(project_dir)
     packages = [
         {
             "name": pkg,
@@ -93,7 +97,7 @@ def collect_inventory(project_dir: Path) -> dict[str, Any] | None:
         }
         for pkg, meta in sorted(declared.items())
     ]
-    return {"project": name, "project_key": key, "packages": packages}
+    return {"project": name, "project_key": key, "project_path": path, "packages": packages}
 
 
 def _walk_lock_v1(deps: dict, out: dict[tuple[str, str], dict]) -> None:
