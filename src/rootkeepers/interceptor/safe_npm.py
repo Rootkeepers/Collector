@@ -18,6 +18,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from rootkeepers.interceptor.cooldown import (
     check_cooldown,
     fetch_package_meta,
@@ -89,10 +90,28 @@ def find_real_npm() -> str:
     if env_path:
         return env_path
 
-    npm_path = shutil.which("npm")
-    if npm_path is None:
-        raise CollectorError("PATH에서 npm 바이너리를 찾을 수 없습니다.")
-    return npm_path
+    # shim 스크립트가 넘겨주지 않은 경우(=사용자가 safe-npm / trustgate install 을
+    # 직접 실행한 경우) 여기서 직접 골라야 한다. 예전에는 shutil.which("npm") 을
+    # 그대로 돌려줬는데, shim 이 설치돼 있으면 PATH 앞에 있는 그 shim 자신이
+    # 잡혔다. 그러면 safe-npm 이 npm 으로 위임할 때 shim → safe-npm 이 되어
+    # 게이트 전체가 한 번 더 돌았다 (계보 수집·GitHub 할당량·소요 시간 2배,
+    # 이력 DB 중복 기록).
+    #
+    # 디렉터리가 아니라 **파일 내용의 마커**로 판별한다 — shim 이 여러 디렉터리에
+    # 남아 있어도 서로를 진짜 npm 으로 착각하지 않는다. shim 스크립트(bash)도
+    # 똑같은 방식으로 고르므로 두 경로의 결과가 일치한다.
+    from rootkeepers.interceptor.shim_installer import _is_our_shim
+
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if not directory:
+            continue
+        # which() 에 디렉터리를 하나씩 넘긴다 — 윈도우의 PATHEXT(.cmd/.exe) 해석을
+        # 직접 재구현하지 않기 위해서다.
+        candidate = shutil.which("npm", path=directory)
+        if candidate and not _is_our_shim(Path(candidate)):
+            return candidate
+
+    raise CollectorError("PATH에서 (shim 이 아닌) 실제 npm 바이너리를 찾을 수 없습니다.")
 
 
 def parse_install_targets(args: list[str]) -> list[str]:

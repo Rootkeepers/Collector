@@ -52,13 +52,16 @@ def _sync_after_install(project_dir: Path) -> None:
         report_inventory(inv)
 
 
-def _run_bulk(args: list[str], command: str) -> int:
+def _run_bulk(args: list[str], command: str, *, create_lock: bool = True) -> int:
     """lock 전체를 대상으로 하는 설치(인자 없는 install, ci)를 처리한다.
 
     개별 패키지 게이트와 달리 계보를 수집하지 않는다 — 전이 의존성까지 계보를
     모으는 것은 설치 앞단에서 감당할 수 있는 비용이 아니다. 대신 lock 기준
     알려진 취약 버전 점검을 붙이고, 무엇을 검사하지 않았는지 명시한다.
     자세한 근거는 ``bulk_gate`` 모듈 docstring 참고.
+
+    ``create_lock``: lock이 없을 때 점검을 위해 만들어도 되는지. ``npm ci``는
+    False다 — ``bulk_gate.ensure_lockfile`` 참고.
     """
     project_dir = Path.cwd()
     try:
@@ -67,7 +70,7 @@ def _run_bulk(args: list[str], command: str) -> int:
         print(f"[ERROR] {exc}")
         return 1
 
-    if not gate_bulk_install(project_dir, npm_path, command):
+    if not gate_bulk_install(project_dir, npm_path, command, create_lock=create_lock):
         return 1
 
     before = collect_lock_packages(project_dir)
@@ -92,8 +95,11 @@ def _run(args: list[str]) -> int:
 
     # npm ci는 install 계열이 아니지만 하는 일은 lock 전체 설치다 — clone 직후와
     # CI에서 가장 흔한 경로이므로 인자 없는 install과 같은 점검을 태운다.
+    # 단, lock이 없으면 만들지 않는다(create_lock=False): ci는 "커밋된 lock이
+    # 없으면 실패한다"가 계약인데, 점검하겠다고 lock을 만들어 주면 그 실패가
+    # 사라져 재현 가능한 설치라는 보증이 깨진다.
     if args[0] == "ci":
-        return _run_bulk(args, "npm ci")
+        return _run_bulk(args, "npm ci", create_lock=False)
 
     if args[0] not in ("install", "i"):
         return run_real_npm(args)

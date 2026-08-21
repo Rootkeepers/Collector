@@ -136,6 +136,36 @@ def test_missing_lock_is_generated_without_installing(tmp_path, monkeypatch):
     assert "--ignore-scripts" in captured["cmd"]
 
 
+def test_ci_does_not_generate_a_missing_lock(tmp_path, monkeypatch):
+    """npm ci의 계약은 "커밋된 lock이 없으면 실패한다"이다.
+
+    점검하겠다고 lock을 만들어 주면 그 실패가 사라져서, lock을 커밋하지 않은
+    설정 오류가 묻히고 고정된 버전 대신 빌드 시점에 새로 해석한 버전이 깔린다.
+    재현 가능한 설치는 이 도구가 지키려는 속성이라, 여기서는 점검을 포기하는
+    쪽을 택한다.
+    """
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(bulk_gate.subprocess, "run",
+                        lambda cmd, **kw: pytest.fail("npm ci인데 lock을 만들려고 했다"))
+
+    ok, reason = bulk_gate.ensure_lockfile(tmp_path, "npm", create_if_missing=False)
+
+    assert ok is False
+    assert "lock을 새로 만들지 않습니다" in reason
+    assert not (tmp_path / "package-lock.json").exists()
+
+
+def test_ci_without_lock_is_announced_and_passed_through(tmp_path, monkeypatch, capsys):
+    """점검은 못 하지만 조용히 넘어가지도 않는다 — 고지하고, 실패 판단은 npm에 맡긴다."""
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(bulk_gate.subprocess, "run",
+                        lambda cmd, **kw: pytest.fail("npm ci인데 lock을 만들려고 했다"))
+
+    # True를 돌려줘야 run_real_npm이 실행되고, 진짜 npm이 EUSAGE로 실패한다.
+    assert bulk_gate.gate_bulk_install(tmp_path, "npm", "npm ci", create_lock=False) is True
+    assert "[미검사]" in capsys.readouterr().out
+
+
 def test_lock_generation_failure_is_reported(tmp_path, monkeypatch):
     (tmp_path / "package.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(bulk_gate.subprocess, "run",

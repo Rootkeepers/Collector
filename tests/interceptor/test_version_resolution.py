@@ -8,6 +8,8 @@ npm 설치 여부에 따라 결과가 흔들리면 회귀 테스트로 쓸 수 �
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from rootkeepers.interceptor import safe_npm
@@ -206,3 +208,60 @@ def test_resolved_version_is_what_gets_scanned(monkeypatch):
     monkeypatch.setattr(safe_npm, "scan_package", fake_scan)
     safe_npm.check_package("react@^18")
     assert seen["scanned"] == ("react", "18.3.1")
+
+
+# --------------------------------------------------------------------------
+# find_real_npm: shim 을 진짜 npm 으로 착각하지 않는다
+# --------------------------------------------------------------------------
+
+def _make_npm(directory, *, is_shim: bool):
+    """PATH 에서 발견될 수 있는 npm 실행 파일을 하나 만든다.
+
+    윈도우의 shutil.which() 는 PATHEXT 에 있는 확장자만 실행 파일로 보므로
+    거기서는 ``npm.cmd`` 로 만든다 (실제 shim 은 bash 스크립트라 확장자가 없다).
+    판별은 어느 쪽이든 파일 내용의 마커로 하므로 이름은 영향을 주지 않는다.
+    """
+    from rootkeepers.interceptor.shim_installer import SHIM_MARKER
+    directory.mkdir(parents=True, exist_ok=True)
+    npm = directory / ("npm.cmd" if os.name == "nt" else "npm")
+    body = f"#!/usr/bin/env bash\n{SHIM_MARKER}\n" if is_shim else "#!/usr/bin/env bash\n"
+    npm.write_text(body, encoding="utf-8")
+    npm.chmod(0o755)
+    return npm
+
+
+def test_find_real_npm_skips_our_shim(tmp_path, monkeypatch):
+    """shim 이 PATH 앞에 있어도 진짜 npm 을 골라야 한다.
+
+    예전에는 shutil.which("npm") 을 그대로 돌려줘서 shim 자신이 잡혔다.
+    그러면 safe-npm 이 npm 에 위임할 때 shim → safe-npm 이 되어 게이트 전체가
+    한 번 더 돌았다(계보 수집·GitHub 할당량·소요 시간 2배, 이력 중복 기록).
+    """
+    shim_dir, real_dir = tmp_path / "shim", tmp_path / "real"
+    _make_npm(shim_dir, is_shim=True)
+    real_npm = _make_npm(real_dir, is_shim=False)
+
+    monkeypatch.delenv("ROOTKEEPERS_REAL_NPM", raising=False)
+    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{real_dir}")
+
+    # 윈도우의 which() 는 PATHEXT 를 대문자로 붙여 돌려주므로(.cmd -> .CMD)
+    # 경로 비교는 대소문자를 무시한다.
+    assert safe_npm.find_real_npm().lower() == str(real_npm).lower()
+
+
+def test_find_real_npm_prefers_env_handoff(tmp_path, monkeypatch):
+    """shim 이 넘겨준 경로가 있으면 PATH 탐색보다 우선한다."""
+    monkeypatch.setenv("ROOTKEEPERS_REAL_NPM", "/usr/bin/npm")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert safe_npm.find_real_npm() == "/usr/bin/npm"
+
+
+def test_find_real_npm_reports_when_only_shim_exists(tmp_path, monkeypatch):
+    """shim 밖에 없으면 그것을 진짜라고 우기지 말고 실패해야 한다."""
+    shim_dir = tmp_path / "shim"
+    _make_npm(shim_dir, is_shim=True)
+    monkeypatch.delenv("ROOTKEEPERS_REAL_NPM", raising=False)
+    monkeypatch.setenv("PATH", str(shim_dir))
+
+    with pytest.raises(safe_npm.CollectorError):
+        safe_npm.find_real_npm()
