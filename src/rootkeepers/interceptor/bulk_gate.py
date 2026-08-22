@@ -63,7 +63,9 @@ def _lineage_max() -> int:
         return _DEFAULT_LINEAGE_MAX
 
 
-def ensure_lockfile(project_dir: Path, npm_path: str) -> tuple[bool, str | None]:
+def ensure_lockfile(
+    project_dir: Path, npm_path: str, *, may_generate: bool = True
+) -> tuple[bool, str | None]:
     """점검 대상을 알기 위해 lock 파일을 확보한다.
 
     lock이 이미 있으면 아무것도 하지 않는다. 없으면 ``npm install
@@ -76,6 +78,15 @@ def ensure_lockfile(project_dir: Path, npm_path: str) -> tuple[bool, str | None]
     깔렸는지는 설치가 끝난 뒤에야 알 수 있고, 그때의 점검은 사후 통보다.
     lock을 먼저 만들면 설치 **전에** 같은 목록을 볼 수 있다.
 
+    Args:
+        project_dir: package.json이 있는 디렉터리.
+        npm_path: 실제 npm 실행 파일 경로.
+        may_generate: lock이 없을 때 만들어도 되는지. ``npm ci``에서는 False다 —
+            "커밋된 lock이 없으면 실패한다"가 그 명령의 계약이고, 여기서 lock을
+            만들어 주면 그 실패가 사라진다. 그러면 lock 미커밋이라는 설정 오류가
+            묻히고, 고정된 버전 대신 이 시점에 새로 해석한 버전이 깔려 재현성이
+            사라진다 — 이 도구가 지키려는 속성을 점검을 붙이려다 없애는 셈이다.
+
     Returns:
         (사용 가능 여부, 실패 사유). 성공하면 사유가 None.
     """
@@ -83,6 +94,9 @@ def ensure_lockfile(project_dir: Path, npm_path: str) -> tuple[bool, str | None]
         return True, None
     if not (project_dir / "package.json").exists():
         return False, "package.json이 없습니다."
+    if not may_generate:
+        return False, ("package-lock.json이 없습니다 — npm ci는 lock 없이 실행할 수 "
+                       "없으므로 lock을 만들지 않고 npm에 그대로 넘깁니다.")
 
     try:
         proc = subprocess.run(
@@ -103,15 +117,22 @@ def ensure_lockfile(project_dir: Path, npm_path: str) -> tuple[bool, str | None]
     return True, None
 
 
-def precheck_lock(project_dir: Path, npm_path: str) -> dict[str, Any]:
+def precheck_lock(
+    project_dir: Path, npm_path: str, *, may_generate_lock: bool = True
+) -> dict[str, Any]:
     """설치될 전체 패키지 집합을 알려진 취약점 기준으로 점검한다.
+
+    Args:
+        project_dir: package.json이 있는 디렉터리.
+        npm_path: 실제 npm 실행 파일 경로.
+        may_generate_lock: lock이 없을 때 만들어도 되는지 (``ensure_lockfile`` 참고).
 
     Returns:
         ``scan_packages()`` 결과에 ``lock_ok``/``reason``/``direct_only`` 등
         표시용 필드를 더한 dict. 점검 자체가 불가능한 경우
         ``status == "SKIPPED"``.
     """
-    lock_ok, lock_error = ensure_lockfile(project_dir, npm_path)
+    lock_ok, lock_error = ensure_lockfile(project_dir, npm_path, may_generate=may_generate_lock)
     if not lock_ok:
         return {
             "status": "SKIPPED", "reason": lock_error, "lock_ok": False,
@@ -350,13 +371,17 @@ def scan_lineage(
     return not summary["risk"], summary
 
 
-def gate_bulk_install(project_dir: Path, npm_path: str, command: str) -> bool:
+def gate_bulk_install(
+    project_dir: Path, npm_path: str, command: str, *, may_generate_lock: bool = True
+) -> bool:
     """일괄 점검을 수행하고 결과를 출력한다.
 
     Args:
         project_dir: package.json이 있는 디렉터리.
         npm_path: 실제 npm 실행 파일 경로.
         command: 사용자가 실행한 커맨드 표시용 문자열 ("npm install" 등).
+        may_generate_lock: lock이 없을 때 만들어도 되는지 (``ensure_lockfile`` 참고).
+            ``npm ci``는 False로 넘어온다.
 
     Returns:
         설치를 진행해도 되는지 여부. 계보 수집에서 RISK가 나오면 차단한다.
@@ -364,7 +389,7 @@ def gate_bulk_install(project_dir: Path, npm_path: str, command: str) -> bool:
         근거의 성격이 다르기 때문이다. 모듈 docstring 참고.
     """
     print(f"[검사] {command}: lock 기준 일괄 점검을 시작합니다...")
-    result = precheck_lock(project_dir, npm_path)
+    result = precheck_lock(project_dir, npm_path, may_generate_lock=may_generate_lock)
 
     if result["status"] == "SKIPPED":
         print(f"[미검사] 일괄 점검을 건너뜁니다: {result.get('reason')}")
