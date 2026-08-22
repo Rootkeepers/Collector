@@ -26,6 +26,7 @@ from rootkeepers.interceptor.cooldown import (
 from rootkeepers.paths import load_env
 from rootkeepers.interceptor.reporting import report_event
 from rootkeepers.interceptor.scanning import scan_package
+from rootkeepers.interceptor.shim_installer import real_npm_path
 
 # npm view는 네트워크를 타므로 무한정 기다리지 않는다. 설치 게이트 앞단이라
 # 사용자가 체감하는 지연에 직접 더해진다.
@@ -71,13 +72,20 @@ class RiskResult:
 def find_real_npm() -> str:
     """진짜 npm 실행 파일을 찾는다.
 
-    PATH에 `npm`이라는 이름의 래퍼를 끼워 넣어 쓰는 경우, 단순한
-    ``shutil.which("npm")``은 **그 래퍼 자신**을 찾아내 무한 재귀에 빠진다.
-
     `npm` 커맨드 자체가 이 인터셉터로 shim 처리된 경우, shim 스크립트가
     자기 자신을 제외한 PATH에서 미리 찾은 진짜 npm 경로를
-    ``ROOTKEEPERS_REAL_NPM`` 환경변수로 넘겨준다. 그 값이 있으면 우선
-    사용해 shim이 자기 자신을 다시 호출하는 무한 재귀를 방지한다.
+    ``ROOTKEEPERS_REAL_NPM`` 환경변수로 넘겨준다. 그 값이 있으면 그대로 쓴다.
+
+    그 환경변수가 없는 경우(``safe-npm``/``trustgate``를 shim을 거치지 않고
+    직접 실행한 경우)에는 PATH를 직접 훑어 **우리 shim이 아닌** 첫 npm을
+    고른다. ``shutil.which("npm")``은 PATH 앞단의 shim을 그대로 돌려주는데,
+    그 값으로 npm을 실행하면 shim → safe-npm 으로 한 바퀴 더 돌아 같은 검사가
+    중복 실행된다. 특히 ``--package-lock-only`` 처럼 인자가 전부 플래그인
+    명령은 ``parse_install_targets()``가 빈 목록을 돌려줘 일괄 게이트를 다시
+    태우고, 그 중첩 실행이 자기 타임아웃을 넘기면 점검이 건너뛰어진다.
+
+    판별은 디렉터리가 아니라 파일 내용(``SHIM_MARKER``)으로 한다 — shim이
+    여러 디렉터리에 남아 있어도 서로를 진짜 npm으로 착각하지 않는다.
 
     Returns:
         진짜 npm 실행 파일의 절대 경로.
@@ -89,10 +97,19 @@ def find_real_npm() -> str:
     if env_path:
         return env_path
 
-    npm_path = shutil.which("npm")
-    if npm_path is None:
-        raise CollectorError("PATH에서 npm 바이너리를 찾을 수 없습니다.")
-    return npm_path
+    npm_path = real_npm_path()
+    if npm_path is not None:
+        return str(npm_path)
+
+    # 여기 왔다는 건 shim이 아닌 npm이 PATH에 하나도 없다는 뜻이다. which()가
+    # 무언가를 찾는다면 그건 shim뿐이므로, 그 값을 돌려주면 재귀에 빠진다 —
+    # 조용히 도는 대신 무엇이 문제인지 말하고 실패한다.
+    if shutil.which("npm") is not None:
+        raise CollectorError(
+            "PATH에 TrustGate shim만 있고 실제 npm을 찾을 수 없습니다. "
+            "Node.js가 설치돼 있는지, shim 디렉터리 뒤에 실제 npm이 있는지 확인하세요."
+        )
+    raise CollectorError("PATH에서 npm 바이너리를 찾을 수 없습니다.")
 
 
 def parse_install_targets(args: list[str]) -> list[str]:

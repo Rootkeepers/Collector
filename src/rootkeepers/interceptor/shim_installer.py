@@ -97,6 +97,18 @@ def _real_npm_dir() -> Path | None:
     return None
 
 
+def real_npm_path() -> Path | None:
+    """PATH에서 **우리 shim이 아닌** 첫 npm 실행 파일. 없으면 None.
+
+    shim 설치 여부와 무관하게 "진짜 npm"이 필요한 곳(``safe_npm.find_real_npm``)이
+    쓴다. 디렉터리가 아니라 파일 내용(``SHIM_MARKER``)으로 판별하므로, shim이
+    여러 디렉터리에 남아 있어도 서로를 진짜 npm으로 착각하지 않는다 — shim
+    스크립트 자신이 bash로 하는 것과 같은 판별이다.
+    """
+    directory = _real_npm_dir()
+    return directory / "npm" if directory else None
+
+
 def _pick_shim_dir() -> tuple[Path, bool]:
     """설치에 쓸 디렉터리와, PATH에 이미 우선순위로 잡혀 있는지 여부를 반환한다.
 
